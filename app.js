@@ -159,7 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Initialize Service Worker for PWA (with instant update)
 function initServiceWorker() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js?v=6.0')
+    navigator.serviceWorker.register('./sw.js?v=7.0')
       .then(reg => {
         reg.update();
         console.log('PWA ServiceWorker updated:', reg.scope);
@@ -977,30 +977,32 @@ async function handleSaveOrder(e) {
     appData.orders.unshift(savedOrderObj);
   }
 
-  // Save to LocalStorage immediately
+  // 1. Save to LocalStorage immediately
   localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(appData.orders));
 
-  // Direct save to Cloud Firestore immediately
+  // 2. Immediately close modal and render UI (Instant, never freezes!)
+  closeOrderModal();
+  setActiveFilter(status);
+  renderDashboard();
+  showToast(`✅ บันทึกคำสั่งซื้อ "${savedOrderObj.supplierName}" เรียบร้อยแล้ว`, 'success');
+
+  // 3. Background Cloud sync (with 3-second timeout protection so UI is never blocked)
   const db = getFirestoreDb();
   if (db && savedOrderObj) {
-    try {
-      await db.collection('orders').doc(savedOrderObj.id).set(savedOrderObj);
+    Promise.race([
+      db.collection('orders').doc(savedOrderObj.id).set(savedOrderObj),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Cloud ไม่ตอบสนองภายใน 3 วินาที')), 3000))
+    ]).then(() => {
       console.log('Successfully saved order to Firestore:', savedOrderObj.id);
       if (!appData.firebaseUnsubscribe) {
         listenToFirestore(db);
       }
-    } catch(err) {
-      console.error('Firestore direct save order error:', err);
-      showToast('บันทึกในเครื่องแล้ว แต่ Cloud ขัดข้อง: ' + err.message, 'warning');
-    }
+    }).catch(err => {
+      console.warn('Firestore background save warning:', err);
+      // Inform user gently without breaking their experience
+      showToast('⚠️ บันทึกในเครื่องแล้ว แต่ Cloud กำลังรอการเชื่อมต่อ', 'warning');
+    });
   }
-
-  closeOrderModal();
-
-  // Automatically switch tab to the newly saved order's status so the user SEES it immediately!
-  setActiveFilter(status);
-  renderDashboard();
-  showToast(`✅ บันทึกคำสั่งซื้อ "${savedOrderObj.supplierName}" เรียบร้อยแล้ว`, 'success');
 }
 
 function editOrder(orderId) {
@@ -1013,19 +1015,24 @@ async function deleteOrder(orderId) {
     appData.orders = appData.orders.filter(o => o.id !== orderId);
     localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(appData.orders));
     renderDashboard();
+    showToast('ลบรายการคำสั่งซื้อแล้ว', 'info');
 
-    // 2. Always delete from Firestore
+    // 2. Non-blocking delete from Firestore
     try {
       const db = getFirestoreDb();
       if (db) {
-        await db.collection('orders').doc(orderId).delete();
-        console.log('Permanently deleted order from Firestore:', orderId);
+        Promise.race([
+          db.collection('orders').doc(orderId).delete(),
+          new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000))
+        ]).then(() => {
+          console.log('Permanently deleted order from Firestore:', orderId);
+        }).catch(err => {
+          console.warn('Firestore direct delete warning:', err);
+        });
       }
     } catch (err) {
       console.warn('Firestore direct delete warning:', err);
     }
-
-    showToast('ลบรายการคำสั่งซื้อแล้ว', 'info');
   }
 }
 
@@ -1115,19 +1122,18 @@ async function confirmQuickOrderChannel(channelName) {
   const cleanOrder = sanitizeOrderForFirestore(order);
   localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(appData.orders));
 
-  const db = getFirestoreDb();
-  if (db) {
-    try {
-      await db.collection('orders').doc(order.id).set(cleanOrder);
-    } catch(err) {
-      console.warn('Firestore quick status save error:', err);
-    }
-  }
-
   closeQuickChannelModal();
   setActiveFilter('สั่งแล้ว');
   renderDashboard();
   showToast(`เปลี่ยนสถานะเป็น 'สั่งแล้ว' (ช่องทาง: ${channelName})`, 'success');
+
+  const db = getFirestoreDb();
+  if (db) {
+    Promise.race([
+      db.collection('orders').doc(order.id).set(cleanOrder),
+      new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000))
+    ]).catch(err => console.warn('Firestore quick status save error:', err));
+  }
 }
 
 // 2. Mark as 'มาส่งแล้ว' (Delivered)
@@ -1146,18 +1152,17 @@ async function markOrderDelivered(orderId) {
   const cleanOrder = sanitizeOrderForFirestore(order);
   localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(appData.orders));
 
-  const db = getFirestoreDb();
-  if (db) {
-    try {
-      await db.collection('orders').doc(order.id).set(cleanOrder);
-    } catch(err) {
-      console.warn('Firestore mark delivered error:', err);
-    }
-  }
-
   setActiveFilter('มาส่งแล้ว');
   renderDashboard();
   showToast('ได้รับของแล้ว! ย้ายไปสถานะ "มาส่งแล้ว" (จะลบอัตโนมัติในอีก 14 วัน)', 'success');
+
+  const db = getFirestoreDb();
+  if (db) {
+    Promise.race([
+      db.collection('orders').doc(order.id).set(cleanOrder),
+      new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000))
+    ]).catch(err => console.warn('Firestore mark delivered error:', err));
+  }
 }
 
 // Copy order text formatted for sending via LINE
