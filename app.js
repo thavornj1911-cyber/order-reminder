@@ -139,9 +139,10 @@ let appData = {
   searchQuery: '',
   filterReminderDays: 0,
   filterChannel: 'all',
-  storageMode: 'local', // 'local' or 'firebase'
+  storageMode: 'firebase', // Default to Cloud Sync
   firebaseDb: null,
-  firebaseUnsubscribe: null
+  firebaseUnsubscribe: null,
+  firebaseSuppliersUnsubscribe: null
 };
 
 // ==================== INITIALIZATION ====================
@@ -158,7 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Initialize Service Worker for PWA (with instant update)
 function initServiceWorker() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js?v=5.0')
+    navigator.serviceWorker.register('./sw.js?v=6.0')
       .then(reg => {
         reg.update();
         console.log('PWA ServiceWorker updated:', reg.scope);
@@ -172,32 +173,33 @@ function initStorage() {
   const savedMode = localStorage.getItem(STORAGE_KEY_MODE) || 'firebase';
   appData.storageMode = savedMode;
 
-  // Load suppliers
+  // Load suppliers (purge any dummy demo suppliers like supp-1..supp-4)
   const savedSuppliers = localStorage.getItem(STORAGE_KEY_SUPPLIERS);
   if (savedSuppliers) {
     try {
-      appData.suppliers = JSON.parse(savedSuppliers);
+      const parsedSupp = JSON.parse(savedSuppliers);
+      appData.suppliers = parsedSupp.filter(s => s.id && !['supp-1', 'supp-2', 'supp-3', 'supp-4'].includes(s.id));
     } catch(e) {
-      appData.suppliers = DEFAULT_SUPPLIERS;
+      appData.suppliers = [];
     }
   } else {
-    appData.suppliers = DEFAULT_SUPPLIERS;
-    saveSuppliersToStorage();
+    appData.suppliers = [];
   }
+  localStorage.setItem(STORAGE_KEY_SUPPLIERS, JSON.stringify(appData.suppliers));
 
-  // Load orders
+  // Load orders (purge any dummy demo sample orders like ord-sample-*)
   const savedOrders = localStorage.getItem(STORAGE_KEY_ORDERS);
   if (savedOrders !== null) {
     try {
-      appData.orders = JSON.parse(savedOrders);
+      const parsed = JSON.parse(savedOrders);
+      appData.orders = parsed.filter(o => o.id && !o.id.startsWith('ord-sample-'));
     } catch(e) {
       appData.orders = [];
     }
   } else {
-    // Only load sample orders on first visit
-    appData.orders = getDefaultSampleOrders();
-    localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(appData.orders));
+    appData.orders = [];
   }
+  localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(appData.orders));
 
   // Check Firebase config if saved, or use pre-configured project config
   let savedConfig = localStorage.getItem(STORAGE_KEY_CONFIG);
@@ -1557,29 +1559,27 @@ function listenToFirestore(db) {
   }
 
   appData.firebaseUnsubscribe = db.collection('orders').onSnapshot((snapshot) => {
-    // GUARD: If snapshot is empty, do NOT wipe local user orders!
+    // If Cloud is currently empty
     if (snapshot.empty) {
-      const hasRealOrders = appData.orders && appData.orders.length > 0 && 
-        appData.orders.some(o => !o.id || !o.id.startsWith('ord-sample-'));
-
-      if (hasRealOrders) {
+      if (appData.orders && appData.orders.length > 0) {
         console.log('Cloud Firestore has 0 orders, uploading local orders to Cloud...');
         syncOrdersToFirebase();
         return;
       }
 
-      if (!appData.orders || appData.orders.length === 0) {
-        appData.orders = [];
-        localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify([]));
-        renderDashboard();
-      }
+      appData.orders = [];
+      localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify([]));
+      renderDashboard();
       return;
     }
 
     // Cloud has documents!
     const orders = [];
     snapshot.forEach(doc => {
-      orders.push({ id: doc.id, ...doc.data() });
+      // Purge any lingering sample orders
+      if (!doc.id.startsWith('ord-sample-')) {
+        orders.push({ id: doc.id, ...doc.data() });
+      }
     });
 
     appData.orders = orders;
