@@ -71,6 +71,13 @@
             <span class="hidden md:inline">Cloud</span>
           </button>
 
+          <!-- Notification Settings Button -->
+          <button onclick="openNotificationModal()" id="headerNotifBtn" class="px-2.5 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-800 text-xs font-medium flex items-center gap-1.5 transition text-white border border-indigo-500/40 shadow-sm" title="ตั้งค่าการแจ้งเตือนเตือนของเกินกำหนด">
+            <i class="fa-solid fa-bell text-yellow-300" id="headerNotifIcon"></i>
+            <span class="hidden md:inline" id="headerNotifLabel">แจ้งเตือน</span>
+            <span id="headerNotifDot" class="w-2 h-2 rounded-full bg-emerald-400 hidden"></span>
+          </button>
+
           <!-- Add Order Button (Desktop) -->
           <button onclick="openOrderModal()" class="hidden sm:flex px-3.5 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-indigo-950 text-xs font-bold items-center gap-1.5 transition shadow-md">
             <i class="fa-solid fa-plus"></i>
@@ -681,10 +688,68 @@
     </div>
   </div>
 
+  <!-- 6. NOTIFICATION SETTINGS MODAL -->
+  <div id="notificationModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-3 overflow-y-auto">
+    <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden border border-slate-100 animate-fadeIn my-auto">
+      <div class="bg-indigo-600 px-5 py-3.5 text-white flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <i class="fa-solid fa-bell text-yellow-300"></i>
+          <h2 class="text-base font-bold">แจ้งเตือนสินค้าเกินกำหนดส่ง</h2>
+        </div>
+        <button onclick="closeNotificationModal()" class="text-indigo-200 hover:text-white text-lg">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-4 text-xs">
+        <!-- Status Card -->
+        <div class="p-3.5 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between">
+          <div>
+            <span class="font-bold text-slate-800 text-sm block">สถานะแจ้งเตือนบนเครื่องนี้</span>
+            <span id="notifStatusText" class="text-slate-500 text-xs">ยังไม่ได้รับสิทธิ์</span>
+          </div>
+          <span id="notifStatusBadge" class="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
+            ยังไม่ได้เปิด
+          </span>
+        </div>
+
+        <!-- Overdue Summary Alert -->
+        <div id="notifOverdueBanner" class="p-3 rounded-xl border border-rose-200 bg-rose-50 text-rose-800 space-y-1">
+          <div class="font-bold flex items-center gap-1.5 text-xs">
+            <i class="fa-solid fa-triangle-exclamation text-rose-600"></i>
+            <span id="notifOverdueCountText">มีสินค้าเกินกำหนดส่งแล้ว 0 รายการ</span>
+          </div>
+          <p class="text-[11px] text-rose-700 leading-relaxed">
+            เมื่อสั่งสินค้าเกินวันที่กำหนดแล้วยังไม่มาส่ง ระบบจะส่งเสียงและเด้งเตือนผ่านหน้าจอมือถือและคอมพิวเตอร์ให้อัตโนมัติ
+          </p>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="space-y-2 pt-2">
+          <button type="button" onclick="requestNotificationPermission()" id="btnRequestNotif" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs shadow-md transition flex items-center justify-center gap-2">
+            <i class="fa-solid fa-bell"></i> เปิดรับการแจ้งเตือนบนเครื่องนี้
+          </button>
+          
+          <button type="button" onclick="testNotificationAlert()" class="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-xs transition flex items-center justify-center gap-2">
+            <i class="fa-solid fa-volume-high text-indigo-600"></i> 🧪 ทดสอบส่งเสียงและเด้งแจ้งเตือนเดี๋ยวนี้
+          </button>
+        </div>
+
+        <!-- Tips for Mobile and Desktop -->
+        <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 text-slate-600 space-y-1.5 text-[11px]">
+          <strong class="text-slate-800 block">💡 ข้อแนะนำสำหรับการรับแจ้งเตือน:</strong>
+          <p>• <strong>บนคอมพิวเตอร์ (Windows):</strong> หน้าต่างแจ้งเตือนจะเด้งที่มุมขวาล่างของจอพร้อมเสียงเตือน</p>
+          <p>• <strong>บนมือถือ Android:</strong> จะเด้งแถบการแจ้งเตือนด้านบนพร้อมสั่นและมีเสียงเตือน</p>
+          <p>• <strong>บน iPhone:</strong> ต้องกด <em>"เพิ่มไปยังหน้าจอโฮม" (Add to Home Screen)</em> แล้วเปิดแอปจากหน้าจอโฮมเพื่อรับสิทธิ์แจ้งเตือนครับ</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- TOAST NOTIFICATION CONTAINER -->
   <div id="toastContainer" class="fixed top-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none"></div>
 
   <!-- JAVASCRIPT LOGIC -->
-  <script src="app.js?v=4.4"></script>
+  <script src="app.js?v=5.0"></script>
 </body>
 </html>

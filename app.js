@@ -152,6 +152,7 @@ document.addEventListener('DOMContentLoaded', () => {
   cleanupOldDeliveredOrders(); // Auto-clean > 14 days delivered orders
   renderDashboard();
   setupLocalQrCode();
+  initNotifications();
 });
 
 // Initialize Service Worker for PWA (with instant update)
@@ -1752,4 +1753,210 @@ function showToast(message, type = 'info') {
     toast.classList.add('opacity-0', '-translate-y-2');
     setTimeout(() => toast.remove(), 300);
   }, 3500);
+}
+
+// ==================== NOTIFICATION SYSTEM ====================
+function initNotifications() {
+  updateNotificationHeaderBadge();
+
+  // Check overdue items on startup after short delay
+  setTimeout(() => {
+    checkAndNotifyOverdueOrders(false);
+  }, 2000);
+
+  // Periodic check every 30 minutes
+  setInterval(() => {
+    checkAndNotifyOverdueOrders(false);
+  }, 30 * 60 * 1000);
+}
+
+function updateNotificationHeaderBadge() {
+  const dot = document.getElementById('headerNotifDot');
+  const label = document.getElementById('headerNotifLabel');
+  if (!dot) return;
+
+  if ('Notification' in window && Notification.permission === 'granted') {
+    dot.className = 'w-2 h-2 rounded-full bg-emerald-400 inline-block';
+    dot.classList.remove('hidden');
+    if (label) label.innerText = 'เตือนเปิดอยู่';
+  } else {
+    dot.classList.add('hidden');
+    if (label) label.innerText = 'แจ้งเตือน';
+  }
+}
+
+function openNotificationModal() {
+  updateNotificationModalUI();
+  document.getElementById('notificationModal').classList.remove('hidden');
+}
+
+function closeNotificationModal() {
+  document.getElementById('notificationModal').classList.add('hidden');
+}
+
+function updateNotificationModalUI() {
+  const statusText = document.getElementById('notifStatusText');
+  const statusBadge = document.getElementById('notifStatusBadge');
+  const btnRequest = document.getElementById('btnRequestNotif');
+  const countText = document.getElementById('notifOverdueCountText');
+
+  const todayStr = getTodayDateString();
+  const overdueCount = appData.orders.filter(o => 
+    o.status !== 'มาส่งแล้ว' && o.dueDate && o.dueDate < todayStr
+  ).length;
+
+  if (countText) {
+    countText.innerText = `มีสินค้าที่สั่งแล้วเกินกำหนดส่ง: ${overdueCount} รายการ`;
+  }
+
+  if (!('Notification' in window)) {
+    if (statusText) statusText.innerText = 'อุปกรณ์นี้ไม่รองรับ Web Notification API';
+    if (statusBadge) {
+      statusBadge.innerText = 'ไม่รองรับ';
+      statusBadge.className = 'px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600';
+    }
+    if (btnRequest) btnRequest.disabled = true;
+    return;
+  }
+
+  if (Notification.permission === 'granted') {
+    if (statusText) statusText.innerText = 'เปิดใช้งานแล้ว (จะเด้งเตือนเมื่อมีของเกินกำหนด)';
+    if (statusBadge) {
+      statusBadge.innerText = 'เปิดใช้งานแล้ว 🟢';
+      statusBadge.className = 'px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200';
+    }
+    if (btnRequest) {
+      btnRequest.innerHTML = '<i class="fa-solid fa-check"></i> อุปกรณ์นี้เปิดรับการแจ้งเตือนแล้ว';
+      btnRequest.className = 'w-full py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-xs shadow-md transition flex items-center justify-center gap-2 cursor-default';
+    }
+  } else if (Notification.permission === 'denied') {
+    if (statusText) statusText.innerText = 'ถูกปิดกั้นในบราวเซอร์ (กรุณาเปิดในตั้งค่าสิทธิ์เว็บไซต์)';
+    if (statusBadge) {
+      statusBadge.innerText = 'ถูกบล็อก 🔴';
+      statusBadge.className = 'px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200';
+    }
+    if (btnRequest) {
+      btnRequest.innerHTML = '<i class="fa-solid fa-gear"></i> สิทธิ์ถูกบล็อก: ต้องเปิดในตั้งค่าเว็บไซต์';
+      btnRequest.className = 'w-full py-2.5 bg-slate-200 text-slate-700 rounded-xl font-bold text-xs transition flex items-center justify-center gap-2';
+    }
+  } else {
+    if (statusText) statusText.innerText = 'ยังไม่ได้รับสิทธิ์ (คลิกปุ่มด้านล่างเพื่อเปิด)';
+    if (statusBadge) {
+      statusBadge.innerText = 'ยังไม่เปิด 🟡';
+      statusBadge.className = 'px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200';
+    }
+    if (btnRequest) {
+      btnRequest.innerHTML = '<i class="fa-solid fa-bell"></i> เปิดรับการแจ้งเตือนบนเครื่องนี้';
+      btnRequest.className = 'w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs shadow-md transition flex items-center justify-center gap-2';
+      btnRequest.disabled = false;
+    }
+  }
+
+  updateNotificationHeaderBadge();
+}
+
+function requestNotificationPermission() {
+  if (!('Notification' in window)) {
+    showToast('เบราว์เซอร์นี้ไม่รองรับการแจ้งเตือน', 'warning');
+    return;
+  }
+
+  Notification.requestPermission().then(permission => {
+    updateNotificationModalUI();
+    if (permission === 'granted') {
+      sendSystemNotification('🔔 เปิดการแจ้งเตือนสำเร็จ!', 'ระบบจะส่งเสียงและเด้งเตือนเมื่อมีสินค้าที่สั่งแล้วเกินวันที่กำหนดส่ง');
+      checkAndNotifyOverdueOrders(true);
+    } else {
+      showToast('การแจ้งเตือนยังไม่ได้รับอนุญาต', 'info');
+    }
+  });
+}
+
+function testNotificationAlert() {
+  sendSystemNotification('🧪 ทดสอบการแจ้งเตือนสำเร็จ!', 'ระบบแจ้งเตือนทำงานปกติ! เมื่อมีสินค้าที่สั่งแล้วเกินวันที่กำหนดส่ง จะมีข้อความเด้งเตือนและมีเสียงแบบนี้ครับ');
+}
+
+function playAlertChime() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    if (ctx.state === 'suspended') {
+      ctx.resume();
+    }
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.type = 'sine';
+    // Two-tone chime: D5 (587Hz) then A5 (880Hz)
+    osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+    osc.frequency.setValueAtTime(880.00, ctx.currentTime + 0.14);
+
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.55);
+
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.55);
+  } catch(e) {
+    console.log('Audio chime not supported or muted');
+  }
+}
+
+function sendSystemNotification(title, body) {
+  playAlertChime();
+
+  const options = {
+    body: body,
+    icon: './icon.svg',
+    badge: './icon.svg',
+    tag: 'order-reminder-alert',
+    renotify: true,
+    requireInteraction: true,
+    vibrate: [200, 100, 200, 100, 300],
+    data: { url: './index.html' }
+  };
+
+  if ('Notification' in window && Notification.permission === 'granted') {
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.ready.then(reg => {
+        reg.showNotification(title, options).catch(() => {
+          new Notification(title, options);
+        });
+      }).catch(() => {
+        new Notification(title, options);
+      });
+    } else {
+      new Notification(title, options);
+    }
+  }
+
+  showToast(`${title}: ${body}`, 'warning');
+}
+
+function checkAndNotifyOverdueOrders(force = false) {
+  const todayStr = getTodayDateString();
+  const overdueOrders = appData.orders.filter(o => 
+    o.status !== 'มาส่งแล้ว' && o.dueDate && o.dueDate < todayStr
+  );
+
+  if (overdueOrders.length === 0) return;
+
+  const lastNotifKey = 'last_overdue_notif_date_v2';
+  const lastNotifiedDate = localStorage.getItem(lastNotifKey);
+
+  // If already notified today and not forced, skip
+  if (!force && lastNotifiedDate === todayStr) {
+    return;
+  }
+
+  const count = overdueOrders.length;
+  const first = overdueOrders[0];
+  const title = `⚠️ มีสินค้าสั่งแล้วเกินกำหนดส่ง ${count} รายการ!`;
+  const body = `พบสินค้าจาก "${first.supplierName}" เกินกำหนดส่งแล้วและยังไม่มาส่ง กรุณาติดตามสินค้า`;
+
+  sendSystemNotification(title, body);
+  localStorage.setItem(lastNotifKey, todayStr);
 }
