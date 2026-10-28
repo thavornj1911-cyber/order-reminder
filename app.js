@@ -158,7 +158,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Initialize Service Worker for PWA (with instant update)
 function initServiceWorker() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js?v=4.0')
+    navigator.serviceWorker.register('./sw.js?v=5.0')
       .then(reg => {
         reg.update();
         console.log('PWA ServiceWorker updated:', reg.scope);
@@ -221,14 +221,14 @@ function initStorage() {
 // Save to LocalStorage
 function saveOrdersToStorage() {
   localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(appData.orders));
-  if (appData.storageMode === 'firebase' && appData.firebaseDb) {
+  if (appData.storageMode === 'firebase') {
     syncOrdersToFirebase();
   }
 }
 
 function saveSuppliersToStorage() {
   localStorage.setItem(STORAGE_KEY_SUPPLIERS, JSON.stringify(appData.suppliers));
-  if (appData.storageMode === 'firebase' && appData.firebaseDb) {
+  if (appData.storageMode === 'firebase') {
     syncSuppliersToFirebase();
   }
 }
@@ -253,9 +253,10 @@ function cleanupOldDeliveredOrders() {
 
   if (toDeleteIds.length > 0) {
     saveOrdersToStorage();
-    if (appData.storageMode === 'firebase' && appData.firebaseDb) {
+    const db = getFirestoreDb();
+    if (db) {
       toDeleteIds.forEach(id => {
-        appData.firebaseDb.collection('orders').doc(id).delete().catch(e => console.warn(e));
+        db.collection('orders').doc(id).delete().catch(e => console.warn(e));
       });
     }
     showToast(`🧹 ลบรายการที่ส่งแล้วเกิน 2 สัปดาห์อัตโนมัติ ${toDeleteIds.length} รายการ`, 'info');
@@ -978,10 +979,14 @@ async function handleSaveOrder(e) {
   localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(appData.orders));
 
   // Direct save to Cloud Firestore immediately
-  if (appData.storageMode === 'firebase' && appData.firebaseDb && savedOrderObj) {
+  const db = getFirestoreDb();
+  if (db && savedOrderObj) {
     try {
-      await appData.firebaseDb.collection('orders').doc(savedOrderObj.id).set(savedOrderObj);
+      await db.collection('orders').doc(savedOrderObj.id).set(savedOrderObj);
       console.log('Successfully saved order to Firestore:', savedOrderObj.id);
+      if (!appData.firebaseUnsubscribe) {
+        listenToFirestore(db);
+      }
     } catch(err) {
       console.error('Firestore direct save order error:', err);
       showToast('บันทึกในเครื่องแล้ว แต่ Cloud ขัดข้อง: ' + err.message, 'warning');
@@ -995,8 +1000,6 @@ async function handleSaveOrder(e) {
   renderDashboard();
   showToast(`✅ บันทึกคำสั่งซื้อ "${savedOrderObj.supplierName}" เรียบร้อยแล้ว`, 'success');
 }
-  renderDashboard();
-}
 
 function editOrder(orderId) {
   openOrderModal(orderId);
@@ -1009,17 +1012,11 @@ async function deleteOrder(orderId) {
     localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(appData.orders));
     renderDashboard();
 
-    // 2. Always delete from Firestore (both in local or firebase mode) if config exists
+    // 2. Always delete from Firestore
     try {
-      if (!firebase.apps.length) {
-        const cfgStr = localStorage.getItem(STORAGE_KEY_CONFIG);
-        if (cfgStr) {
-          const cfg = parseFirebaseConfigInput(cfgStr);
-          firebase.initializeApp(cfg);
-        }
-      }
-      if (firebase.apps.length) {
-        await firebase.firestore().collection('orders').doc(orderId).delete();
+      const db = getFirestoreDb();
+      if (db) {
+        await db.collection('orders').doc(orderId).delete();
         console.log('Permanently deleted order from Firestore:', orderId);
       }
     } catch (err) {
@@ -1040,16 +1037,10 @@ async function clearAllOrders() {
   renderDashboard();
 
   try {
-    if (!firebase.apps.length) {
-      const cfgStr = localStorage.getItem(STORAGE_KEY_CONFIG);
-      if (cfgStr) {
-        const cfg = parseFirebaseConfigInput(cfgStr);
-        firebase.initializeApp(cfg);
-      }
-    }
-    if (firebase.apps.length) {
-      const snapshot = await firebase.firestore().collection('orders').get();
-      const batch = firebase.firestore().batch();
+    const db = getFirestoreDb();
+    if (db) {
+      const snapshot = await db.collection('orders').get();
+      const batch = db.batch();
       snapshot.forEach(doc => batch.delete(doc.ref));
       await batch.commit();
       console.log('All orders wiped from Firestore');
@@ -1078,17 +1069,11 @@ async function clearDeliveredOrders() {
   renderDashboard();
 
   try {
-    if (!firebase.apps.length) {
-      const cfgStr = localStorage.getItem(STORAGE_KEY_CONFIG);
-      if (cfgStr) {
-        const cfg = parseFirebaseConfigInput(cfgStr);
-        firebase.initializeApp(cfg);
-      }
-    }
-    if (firebase.apps.length) {
-      const batch = firebase.firestore().batch();
+    const db = getFirestoreDb();
+    if (db) {
+      const batch = db.batch();
       deliveredIds.forEach(id => {
-        batch.delete(firebase.firestore().collection('orders').doc(id));
+        batch.delete(db.collection('orders').doc(id));
       });
       await batch.commit();
       console.log('Cleared delivered orders from Firestore');
@@ -1128,9 +1113,10 @@ async function confirmQuickOrderChannel(channelName) {
   const cleanOrder = sanitizeOrderForFirestore(order);
   localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(appData.orders));
 
-  if (appData.storageMode === 'firebase' && appData.firebaseDb) {
+  const db = getFirestoreDb();
+  if (db) {
     try {
-      await appData.firebaseDb.collection('orders').doc(order.id).set(cleanOrder);
+      await db.collection('orders').doc(order.id).set(cleanOrder);
     } catch(err) {
       console.warn('Firestore quick status save error:', err);
     }
@@ -1158,9 +1144,10 @@ async function markOrderDelivered(orderId) {
   const cleanOrder = sanitizeOrderForFirestore(order);
   localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(appData.orders));
 
-  if (appData.storageMode === 'firebase' && appData.firebaseDb) {
+  const db = getFirestoreDb();
+  if (db) {
     try {
-      await appData.firebaseDb.collection('orders').doc(order.id).set(cleanOrder);
+      await db.collection('orders').doc(order.id).set(cleanOrder);
     } catch(err) {
       console.warn('Firestore mark delivered error:', err);
     }
@@ -1367,8 +1354,9 @@ function deleteSupplier(suppId) {
     saveSuppliersToStorage();
 
     // Explicitly delete from Firebase Cloud immediately
-    if (appData.storageMode === 'firebase' && appData.firebaseDb) {
-      appData.firebaseDb.collection('suppliers').doc(suppId).delete().catch(err => {
+    const db = getFirestoreDb();
+    if (db) {
+      db.collection('suppliers').doc(suppId).delete().catch(err => {
         console.error('Error deleting supplier from Firestore:', err);
       });
     }
@@ -1475,6 +1463,30 @@ function parseFirebaseConfigInput(str) {
   }
 }
 
+function getFirestoreDb() {
+  if (appData.firebaseDb) return appData.firebaseDb;
+  try {
+    if (typeof firebase === 'undefined') return null;
+    if (!firebase.apps || !firebase.apps.length) {
+      let cfg = DEFAULT_FIREBASE_CONFIG;
+      const savedConfig = localStorage.getItem(STORAGE_KEY_CONFIG);
+      if (savedConfig) {
+        try {
+          cfg = parseFirebaseConfigInput(savedConfig);
+        } catch(e) {
+          cfg = DEFAULT_FIREBASE_CONFIG;
+        }
+      }
+      firebase.initializeApp(cfg);
+    }
+    appData.firebaseDb = firebase.firestore();
+    return appData.firebaseDb;
+  } catch (err) {
+    console.error('getFirestoreDb error:', err);
+    return null;
+  }
+}
+
 async function saveAndConnectFirebase() {
   const configText = document.getElementById('firebaseConfigInput').value.trim();
   if (!configText) {
@@ -1493,16 +1505,10 @@ async function saveAndConnectFirebase() {
   resultBox.classList.remove('hidden');
 
   try {
-    const cfg = parseFirebaseConfigInput(configText);
+    const db = getFirestoreDb();
+    if (!db) throw new Error('ไม่สามารถเชื่อมต่อ Firebase ได้');
 
-    if (!firebase.apps.length) {
-      firebase.initializeApp(cfg);
-    }
-
-    const db = firebase.firestore();
-    appData.firebaseDb = db;
-
-    // 1. FIRST, clean up Cloud: Delete any documents in Cloud that user already deleted locally
+    // Clean up & sync orders
     const snapshot = await db.collection('orders').get();
     const currentOrderIds = new Set(appData.orders.map(o => o.id));
     const batch = db.batch();
@@ -1513,19 +1519,23 @@ async function saveAndConnectFirebase() {
       }
     });
 
-    // Save our current orders
     appData.orders.forEach(order => {
-      const docRef = db.collection('orders').doc(order.id);
-      batch.set(docRef, order);
+      const cleanOrder = sanitizeOrderForFirestore(order);
+      const docRef = db.collection('orders').doc(cleanOrder.id);
+      batch.set(docRef, cleanOrder);
     });
 
     await batch.commit();
 
-    // 2. NOW attach the realtime listener
+    // Sync suppliers too
+    await syncSuppliersToFirebase();
+
+    // Attach listeners
     listenToFirestore(db);
+    listenToSuppliersFirestore(db);
 
     resultBox.className = 'p-2.5 rounded-lg text-xs bg-emerald-50 border border-emerald-200 text-emerald-800';
-    resultBox.innerHTML = '✅ เชื่อมต่อและซิงค์ Cloud สำเร็จ! รายการที่ลบไปจะไม่กลับมาอีก';
+    resultBox.innerHTML = '✅ เชื่อมต่อและซิงค์ Cloud สำเร็จ! ข้อมูลจะถูกบันทึกตลอด 24 ชม.';
     updateStorageUI();
     showToast('เชื่อมต่อ Cloud และซิงค์ข้อมูลเรียบร้อยแล้ว!', 'success');
 
@@ -1539,11 +1549,34 @@ async function saveAndConnectFirebase() {
 }
 
 function listenToFirestore(db) {
+  if (!db) db = getFirestoreDb();
+  if (!db) return;
+
   if (appData.firebaseUnsubscribe) {
     appData.firebaseUnsubscribe();
   }
 
   appData.firebaseUnsubscribe = db.collection('orders').onSnapshot((snapshot) => {
+    // GUARD: If snapshot is empty, do NOT wipe local user orders!
+    if (snapshot.empty) {
+      const hasRealOrders = appData.orders && appData.orders.length > 0 && 
+        appData.orders.some(o => !o.id || !o.id.startsWith('ord-sample-'));
+
+      if (hasRealOrders) {
+        console.log('Cloud Firestore has 0 orders, uploading local orders to Cloud...');
+        syncOrdersToFirebase();
+        return;
+      }
+
+      if (!appData.orders || appData.orders.length === 0) {
+        appData.orders = [];
+        localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify([]));
+        renderDashboard();
+      }
+      return;
+    }
+
+    // Cloud has documents!
     const orders = [];
     snapshot.forEach(doc => {
       orders.push({ id: doc.id, ...doc.data() });
@@ -1552,23 +1585,50 @@ function listenToFirestore(db) {
     appData.orders = orders;
     localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(orders));
     renderDashboard();
+    checkAndNotifyOverdueOrders();
   }, (err) => {
-    console.error('Firestore listener error:', err);
+    console.error('Firestore orders listener error:', err);
     if (err.code === 'permission-denied') {
-      showToast('Firestore ติดสิทธิ์: กรุณาไปที่แท็บ Rules แล้วเปลี่ยน false; เป็น true;', 'warning');
+      showToast('Firestore ติดสิทธิ์: กรุณาไปที่ Firebase Console > Firestore > Rules แล้วเปลี่ยนเป็น allow read, write: if true;', 'warning');
     }
+  });
+}
+
+function listenToSuppliersFirestore(db) {
+  if (!db) db = getFirestoreDb();
+  if (!db) return;
+
+  if (appData.firebaseSuppliersUnsubscribe) {
+    appData.firebaseSuppliersUnsubscribe();
+  }
+
+  appData.firebaseSuppliersUnsubscribe = db.collection('suppliers').onSnapshot((snapshot) => {
+    if (snapshot.empty) {
+      if (appData.suppliers && appData.suppliers.length > 0) {
+        syncSuppliersToFirebase();
+      }
+      return;
+    }
+
+    const suppliers = [];
+    snapshot.forEach(doc => {
+      suppliers.push({ id: doc.id, ...doc.data() });
+    });
+
+    appData.suppliers = suppliers;
+    localStorage.setItem(STORAGE_KEY_SUPPLIERS, JSON.stringify(suppliers));
+    renderSuppliersList();
+  }, (err) => {
+    console.warn('Firestore suppliers listener error:', err);
   });
 }
 
 function connectFirebase(configStr) {
   try {
-    const cfg = parseFirebaseConfigInput(configStr);
-    if (!firebase.apps.length) {
-      firebase.initializeApp(cfg);
-    }
-    const db = firebase.firestore();
-    appData.firebaseDb = db;
+    const db = getFirestoreDb();
+    if (!db) return;
     listenToFirestore(db);
+    listenToSuppliersFirestore(db);
     updateStorageUI();
   } catch(err) {
     console.error('Connect firebase silent error:', err);
@@ -1576,11 +1636,12 @@ function connectFirebase(configStr) {
 }
 
 async function syncOrdersToFirebase() {
-  if (!appData.firebaseDb) return;
+  const db = getFirestoreDb();
+  if (!db) return;
   try {
-    const snapshot = await appData.firebaseDb.collection('orders').get();
+    const snapshot = await db.collection('orders').get();
     const currentIds = new Set(appData.orders.map(o => o.id));
-    const batch = appData.firebaseDb.batch();
+    const batch = db.batch();
 
     // 1. Delete documents in Cloud that are no longer in our local orders list
     snapshot.forEach(doc => {
@@ -1592,7 +1653,7 @@ async function syncOrdersToFirebase() {
     // 2. Save current orders with sanitization
     appData.orders.forEach(order => {
       const cleanOrder = sanitizeOrderForFirestore(order);
-      const docRef = appData.firebaseDb.collection('orders').doc(cleanOrder.id);
+      const docRef = db.collection('orders').doc(cleanOrder.id);
       batch.set(docRef, cleanOrder);
     });
 
@@ -1604,11 +1665,12 @@ async function syncOrdersToFirebase() {
 }
 
 async function syncSuppliersToFirebase() {
-  if (!appData.firebaseDb) return;
+  const db = getFirestoreDb();
+  if (!db) return;
   try {
-    const snapshot = await appData.firebaseDb.collection('suppliers').get();
+    const snapshot = await db.collection('suppliers').get();
     const currentIds = new Set(appData.suppliers.map(s => s.id));
-    const batch = appData.firebaseDb.batch();
+    const batch = db.batch();
 
     // 1. Delete suppliers in Cloud that are no longer in local
     snapshot.forEach(doc => {
@@ -1619,7 +1681,7 @@ async function syncSuppliersToFirebase() {
 
     // 2. Save current suppliers
     appData.suppliers.forEach(s => {
-      const docRef = appData.firebaseDb.collection('suppliers').doc(s.id);
+      const docRef = db.collection('suppliers').doc(s.id);
       batch.set(docRef, s);
     });
 
@@ -1631,7 +1693,8 @@ async function syncSuppliersToFirebase() {
 }
 
 async function forcePushLocalToCloud() {
-  if (!appData.firebaseDb) {
+  const db = getFirestoreDb();
+  if (!db) {
     showToast('กรุณาเชื่อมต่อ Firebase ก่อน', 'warning');
     return;
   }
@@ -1643,14 +1706,15 @@ async function forcePushLocalToCloud() {
 }
 
 async function clearCloudOrders() {
-  if (!appData.firebaseDb) {
+  const db = getFirestoreDb();
+  if (!db) {
     showToast('กรุณาเชื่อมต่อ Firebase ก่อน', 'warning');
     return;
   }
   if (confirm('⚠️ คุณแน่ใจหรือไม่ว่าต้องการล้างข้อมูลคำสั่งซื้อทั้งหมด?')) {
     try {
-      const snapshot = await appData.firebaseDb.collection('orders').get();
-      const batch = appData.firebaseDb.batch();
+      const snapshot = await db.collection('orders').get();
+      const batch = db.batch();
       snapshot.forEach(doc => batch.delete(doc.ref));
       await batch.commit();
       appData.orders = [];
