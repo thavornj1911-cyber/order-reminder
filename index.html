@@ -447,11 +447,15 @@
       </div>
 
       <div class="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
-        <!-- Add New Supplier Form -->
+        <!-- Add / Edit Supplier Form -->
         <form id="newSupplierForm" onsubmit="handleSaveSupplier(event)" class="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
-          <h3 class="text-xs font-bold text-slate-700 flex items-center gap-1">
-            <i class="fa-solid fa-user-plus text-indigo-600"></i> เพิ่มซัพพลายเออร์ใหม่
-          </h3>
+          <input type="hidden" id="suppEditId" value="">
+          <div class="flex items-center justify-between">
+            <h3 id="suppFormTitle" class="text-xs font-bold text-slate-700 flex items-center gap-1">
+              <i class="fa-solid fa-user-plus text-indigo-600"></i> เพิ่มซัพพลายเออร์ใหม่
+            </h3>
+            <span id="suppEditingBadge" class="hidden text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-semibold">กำลังแก้ไข</span>
+          </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
             <div>
               <label class="block text-[11px] font-medium text-slate-600 mb-0.5">ชื่อร้าน / ซัพพลายเออร์ *</label>
@@ -470,9 +474,14 @@
               <input type="text" id="suppNote" placeholder="เช่น สั่งกล่องพัสดุ เบอร์ 0" class="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-xs focus:ring-1 focus:ring-indigo-500">
             </div>
           </div>
-          <button type="submit" class="w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg shadow-sm transition">
-            + บันทึกซัพพลายเออร์
-          </button>
+          <div class="flex items-center gap-2">
+            <button type="submit" id="suppSubmitBtn" class="flex-grow py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg shadow-sm transition">
+              <span id="suppSubmitBtnText">+ บันทึกซัพพลายเออร์</span>
+            </button>
+            <button type="button" id="suppCancelEditBtn" onclick="cancelEditSupplier()" class="hidden px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold text-xs rounded-lg transition">
+              ยกเลิก
+            </button>
+          </div>
         </form>
 
         <!-- Existing Suppliers List -->
@@ -676,6 +685,6 @@
   <div id="toastContainer" class="fixed top-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none"></div>
 
   <!-- JAVASCRIPT LOGIC -->
-  <script src="app.js?v=4.3"></script>
+  <script src="app.js?v=4.4"></script>
 </body>
 </html>

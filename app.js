@@ -1201,11 +1201,13 @@ function openSupplierModal() {
 }
 
 function closeSupplierModal() {
+  cancelEditSupplier();
   document.getElementById('supplierModal').classList.add('hidden');
 }
 
 function handleSaveSupplier(e) {
   e.preventDefault();
+  const editId = document.getElementById('suppEditId').value;
   const name = document.getElementById('suppName').value.trim();
   const phone = document.getElementById('suppPhone').value.trim();
   const line = document.getElementById('suppLine').value.trim();
@@ -1213,6 +1215,37 @@ function handleSaveSupplier(e) {
 
   if (!name) return;
 
+  if (editId) {
+    // Edit existing supplier
+    const idx = appData.suppliers.findIndex(s => s.id === editId);
+    if (idx !== -1) {
+      const oldName = appData.suppliers[idx].name;
+      appData.suppliers[idx] = { id: editId, name, phone, line, note };
+
+      // Update supplier name and contact on active orders if name changed
+      let ordersUpdated = false;
+      appData.orders.forEach(order => {
+        if (order.supplierName === oldName) {
+          order.supplierName = name;
+          order.supplierPhone = phone;
+          order.supplierLine = line;
+          ordersUpdated = true;
+        }
+      });
+      if (ordersUpdated) {
+        saveOrdersToStorage();
+        renderOrdersList();
+      }
+
+      saveSuppliersToStorage();
+      cancelEditSupplier();
+      renderSuppliersList();
+      showToast(`แก้ไขข้อมูลซัพพลายเออร์ "${name}" สำเร็จ`, 'success');
+      return;
+    }
+  }
+
+  // Create new supplier
   const newSupp = {
     id: 'supp-' + Date.now(),
     name,
@@ -1226,6 +1259,33 @@ function handleSaveSupplier(e) {
   document.getElementById('newSupplierForm').reset();
   renderSuppliersList();
   showToast(`เพิ่มซัพพลายเออร์ "${name}" เรียบร้อยแล้ว`, 'success');
+}
+
+function editSupplier(suppId) {
+  const supp = appData.suppliers.find(s => s.id === suppId);
+  if (!supp) return;
+
+  document.getElementById('suppEditId').value = supp.id;
+  document.getElementById('suppName').value = supp.name || '';
+  document.getElementById('suppPhone').value = supp.phone || '';
+  document.getElementById('suppLine').value = supp.line || '';
+  document.getElementById('suppNote').value = supp.note || '';
+
+  document.getElementById('suppFormTitle').innerHTML = '<i class="fa-solid fa-pen-to-square text-amber-500"></i> แก้ไขข้อมูลซัพพลายเออร์';
+  document.getElementById('suppSubmitBtnText').innerText = '💾 บันทึกการแก้ไข';
+  document.getElementById('suppCancelEditBtn').classList.remove('hidden');
+  document.getElementById('suppEditingBadge').classList.remove('hidden');
+
+  document.getElementById('suppName').focus();
+}
+
+function cancelEditSupplier() {
+  document.getElementById('newSupplierForm').reset();
+  document.getElementById('suppEditId').value = '';
+  document.getElementById('suppFormTitle').innerHTML = '<i class="fa-solid fa-user-plus text-indigo-600"></i> เพิ่มซัพพลายเออร์ใหม่';
+  document.getElementById('suppSubmitBtnText').innerText = '+ บันทึกซัพพลายเออร์';
+  document.getElementById('suppCancelEditBtn').classList.add('hidden');
+  document.getElementById('suppEditingBadge').classList.add('hidden');
 }
 
 function deleteSupplier(suppId) {
@@ -1270,9 +1330,14 @@ function renderSuppliersList() {
           ${s.note ? `<span class="text-slate-400">• ${escapeHtml(s.note)}</span>` : ''}
         </div>
       </div>
-      <button onclick="deleteSupplier('${s.id}')" class="text-slate-400 hover:text-red-500 p-1.5 transition">
-        <i class="fa-regular fa-trash-can"></i>
-      </button>
+      <div class="flex items-center space-x-1 shrink-0">
+        <button onclick="editSupplier('${s.id}')" class="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg text-xs transition" title="แก้ไขข้อมูลซัพพลายเออร์">
+          <i class="fa-regular fa-pen-to-square"></i>
+        </button>
+        <button onclick="deleteSupplier('${s.id}')" class="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg text-xs transition" title="ลบซัพพลายเออร์">
+          <i class="fa-regular fa-trash-can"></i>
+        </button>
+      </div>
     </div>
   `).join('');
 }
