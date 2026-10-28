@@ -168,7 +168,7 @@ function initServiceWorker() {
 
 // Initialize Storage (LocalStorage or Firebase)
 function initStorage() {
-  const savedMode = localStorage.getItem(STORAGE_KEY_MODE) || 'local';
+  const savedMode = localStorage.getItem(STORAGE_KEY_MODE) || 'firebase';
   appData.storageMode = savedMode;
 
   // Load suppliers
@@ -1287,22 +1287,16 @@ function closeCloudModal() {
 }
 
 function switchStorageMode(mode) {
-  appData.storageMode = mode;
-  localStorage.setItem(STORAGE_KEY_MODE, mode);
-  updateStorageUI();
-
   if (mode === 'firebase') {
-    const configStr = document.getElementById('firebaseConfigInput').value.trim();
-    if (configStr) {
-      connectFirebase(configStr);
-    } else {
-      showToast('กรุณาวาง Firebase Config เพื่อเริ่มเชื่อมต่อ', 'warning');
-    }
+    saveAndConnectFirebase();
   } else {
+    appData.storageMode = 'local';
+    localStorage.setItem(STORAGE_KEY_MODE, 'local');
     if (appData.firebaseUnsubscribe) {
       appData.firebaseUnsubscribe();
       appData.firebaseUnsubscribe = null;
     }
+    updateStorageUI();
     showToast('เปลี่ยนเป็นโหมดออฟไลน์ในเครื่อง (Local Storage)', 'info');
   }
 }
@@ -1323,6 +1317,26 @@ function updateStorageUI() {
     text.innerText = 'ออฟไลน์';
     if (btnLocal) btnLocal.className = 'p-2.5 rounded-xl border border-indigo-500 bg-indigo-50 text-indigo-800 text-center font-bold';
     if (btnFirebase) btnFirebase.className = 'p-2.5 rounded-xl border border-slate-200 bg-white text-slate-600 text-center font-normal';
+  }
+}
+
+function parseFirebaseConfigInput(str) {
+  str = (str || '').trim();
+  try {
+    return JSON.parse(str);
+  } catch(e) {
+    const match = str.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        return (new Function("return " + match[0]))();
+      } catch(err2) {
+        throw new Error('รูปแบบ Config ไม่ถูกต้อง');
+      }
+    }
+    if (typeof DEFAULT_FIREBASE_CONFIG !== 'undefined') {
+      return DEFAULT_FIREBASE_CONFIG;
+    }
+    throw new Error('ไม่พบข้อมูล Config กรุณาวาง Firebase Config');
   }
 }
 
