@@ -843,20 +843,48 @@ function setReminderDays(days) {
   document.getElementById('orderDueDate').value = targetDate.toISOString().split('T')[0];
 }
 
+function sanitizeOrderForFirestore(order) {
+  return {
+    id: String(order.id || ('ord-' + Date.now())),
+    supplierName: String(order.supplierName || 'ไม่ระบุชื่อร้าน'),
+    supplierPhone: String(order.supplierPhone || ''),
+    supplierLine: String(order.supplierLine || ''),
+    status: String(order.status || 'คิดว่าจะสั่ง'),
+    channel: order.channel ? String(order.channel) : null,
+    orderedAt: order.orderedAt ? String(order.orderedAt) : null,
+    reminderDays: Number(order.reminderDays) || 3,
+    dueDate: String(order.dueDate || ''),
+    deliveredAt: order.deliveredAt ? String(order.deliveredAt) : null,
+    items: (order.items || []).map(it => ({
+      id: String(it.id || ('it-' + Math.random().toString(36).substr(2, 6))),
+      name: String(it.name || ''),
+      quantity: String(it.quantity || '1'),
+      unit: String(it.unit || 'ชิ้น'),
+      checked: Boolean(it.checked),
+      note: String(it.note || '')
+    })),
+    note: String(order.note || ''),
+    createdAt: String(order.createdAt || new Date().toISOString()),
+    updatedAt: String(order.updatedAt || new Date().toISOString())
+  };
+}
+
 // Handle Save Order Form
-function handleSaveOrder(e) {
+async function handleSaveOrder(e) {
   e.preventDefault();
 
   const orderId = document.getElementById('orderId').value;
   const supplierName = document.getElementById('orderSupplierInput').value.trim();
-  const status = document.querySelector('input[name="orderStatus"]:checked').value;
+  const statusRadio = document.querySelector('input[name="orderStatus"]:checked');
+  const status = statusRadio ? statusRadio.value : 'คิดว่าจะสั่ง';
   const reminderDays = parseInt(document.getElementById('orderReminderDays').value, 10) || 3;
   const dueDate = document.getElementById('orderDueDate').value;
   const note = document.getElementById('orderNote').value.trim();
 
   let channel = null;
   if (status === 'สั่งแล้ว') {
-    channel = document.querySelector('input[name="orderChannel"]:checked')?.value || 'ไลน์';
+    const chRadio = document.querySelector('input[name="orderChannel"]:checked');
+    channel = chRadio ? chRadio.value : 'ไลน์';
   }
 
   // Extract Product Rows
@@ -864,7 +892,7 @@ function handleSaveOrder(e) {
   const items = [];
   itemRows.forEach(row => {
     const name = row.querySelector('.item-name')?.value.trim();
-    const qty = row.querySelector('.item-qty')?.value.trim();
+    const qty = row.querySelector('.item-qty')?.value.trim() || '1';
     const unit = row.querySelector('.item-unit')?.value.trim() || 'หน่วย';
     if (name) {
       items.push({
@@ -898,17 +926,18 @@ function handleSaveOrder(e) {
   }
 
   const nowIso = new Date().toISOString();
+  let savedOrderObj = null;
 
   if (orderId) {
     // Edit existing order
     const idx = appData.orders.findIndex(o => o.id === orderId);
     if (idx !== -1) {
       const existing = appData.orders[idx];
-      appData.orders[idx] = {
+      savedOrderObj = sanitizeOrderForFirestore({
         ...existing,
         supplierName,
-        supplierPhone: supplierObj.phone || existing.supplierPhone,
-        supplierLine: supplierObj.line || existing.supplierLine,
+        supplierPhone: supplierObj.phone || existing.supplierPhone || '',
+        supplierLine: supplierObj.line || existing.supplierLine || '',
         status,
         channel: status === 'สั่งแล้ว' ? (channel || existing.channel || 'ไลน์') : existing.channel,
         orderedAt: status === 'สั่งแล้ว' ? (existing.orderedAt || nowIso) : existing.orderedAt,
@@ -916,18 +945,17 @@ function handleSaveOrder(e) {
         dueDate,
         deliveredAt: status === 'มาส่งแล้ว' ? (existing.deliveredAt || nowIso) : (status !== 'มาส่งแล้ว' ? null : existing.deliveredAt),
         items: items.map((it, i) => {
-          // preserve check state if same index
           const prev = existing.items && existing.items[i];
-          return prev ? { ...it, checked: prev.checked } : it;
+          return prev ? { ...it, checked: Boolean(prev.checked) } : it;
         }),
         note,
         updatedAt: nowIso
-      };
-      showToast('แก้ไขคำสั่งซื้อเรียบร้อยแล้ว', 'success');
+      });
+      appData.orders[idx] = savedOrderObj;
     }
   } else {
     // Create new order
-    const newOrder = {
+    savedOrderObj = sanitizeOrderForFirestore({
       id: 'ord-' + Date.now(),
       supplierName,
       supplierPhone: supplierObj.phone || '',
@@ -940,14 +968,33 @@ function handleSaveOrder(e) {
       deliveredAt: status === 'มาส่งแล้ว' ? nowIso : null,
       items,
       note,
-      createdAt: nowIso
-    };
-    appData.orders.unshift(newOrder);
-    showToast('บันทึกคำสั่งซื้อใหม่เรียบร้อยแล้ว', 'success');
+      createdAt: nowIso,
+      updatedAt: nowIso
+    });
+    appData.orders.unshift(savedOrderObj);
   }
 
-  saveOrdersToStorage();
+  // Save to LocalStorage immediately
+  localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(appData.orders));
+
+  // Direct save to Cloud Firestore immediately
+  if (appData.storageMode === 'firebase' && appData.firebaseDb && savedOrderObj) {
+    try {
+      await appData.firebaseDb.collection('orders').doc(savedOrderObj.id).set(savedOrderObj);
+      console.log('Successfully saved order to Firestore:', savedOrderObj.id);
+    } catch(err) {
+      console.error('Firestore direct save order error:', err);
+      showToast('บันทึกในเครื่องแล้ว แต่ Cloud ขัดข้อง: ' + err.message, 'warning');
+    }
+  }
+
   closeOrderModal();
+
+  // Automatically switch tab to the newly saved order's status so the user SEES it immediately!
+  setActiveFilter(status);
+  renderDashboard();
+  showToast(`✅ บันทึกคำสั่งซื้อ "${savedOrderObj.supplierName}" เรียบร้อยแล้ว`, 'success');
+}
   renderDashboard();
 }
 
@@ -1064,7 +1111,7 @@ function closeQuickChannelModal() {
   document.getElementById('quickChannelModal').classList.add('hidden');
 }
 
-function confirmQuickOrderChannel(channelName) {
+async function confirmQuickOrderChannel(channelName) {
   const orderId = document.getElementById('quickOrderId').value;
   const order = appData.orders.find(o => o.id === orderId);
   if (!order) return;
@@ -1078,14 +1125,25 @@ function confirmQuickOrderChannel(channelName) {
   targetDate.setDate(targetDate.getDate() + (order.reminderDays || 3));
   order.dueDate = targetDate.toISOString().split('T')[0];
 
-  saveOrdersToStorage();
+  const cleanOrder = sanitizeOrderForFirestore(order);
+  localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(appData.orders));
+
+  if (appData.storageMode === 'firebase' && appData.firebaseDb) {
+    try {
+      await appData.firebaseDb.collection('orders').doc(order.id).set(cleanOrder);
+    } catch(err) {
+      console.warn('Firestore quick status save error:', err);
+    }
+  }
+
   closeQuickChannelModal();
+  setActiveFilter('สั่งแล้ว');
   renderDashboard();
   showToast(`เปลี่ยนสถานะเป็น 'สั่งแล้ว' (ช่องทาง: ${channelName})`, 'success');
 }
 
 // 2. Mark as 'มาส่งแล้ว' (Delivered)
-function markOrderDelivered(orderId) {
+async function markOrderDelivered(orderId) {
   const order = appData.orders.find(o => o.id === orderId);
   if (!order) return;
 
@@ -1097,7 +1155,18 @@ function markOrderDelivered(orderId) {
     order.items.forEach(i => i.checked = true);
   }
 
-  saveOrdersToStorage();
+  const cleanOrder = sanitizeOrderForFirestore(order);
+  localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(appData.orders));
+
+  if (appData.storageMode === 'firebase' && appData.firebaseDb) {
+    try {
+      await appData.firebaseDb.collection('orders').doc(order.id).set(cleanOrder);
+    } catch(err) {
+      console.warn('Firestore mark delivered error:', err);
+    }
+  }
+
+  setActiveFilter('มาส่งแล้ว');
   renderDashboard();
   showToast('ได้รับของแล้ว! ย้ายไปสถานะ "มาส่งแล้ว" (จะลบอัตโนมัติในอีก 14 วัน)', 'success');
 }
@@ -1520,10 +1589,11 @@ async function syncOrdersToFirebase() {
       }
     });
 
-    // 2. Save current orders
+    // 2. Save current orders with sanitization
     appData.orders.forEach(order => {
-      const docRef = appData.firebaseDb.collection('orders').doc(order.id);
-      batch.set(docRef, order);
+      const cleanOrder = sanitizeOrderForFirestore(order);
+      const docRef = appData.firebaseDb.collection('orders').doc(cleanOrder.id);
+      batch.set(docRef, cleanOrder);
     });
 
     await batch.commit();
