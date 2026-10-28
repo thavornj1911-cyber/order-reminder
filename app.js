@@ -16,12 +16,12 @@ const STORAGE_KEY_SUPPLIERS = 'order_reminder_suppliers_v1';
 const STORAGE_KEY_CONFIG = 'order_reminder_firebase_cfg_v1';
 const STORAGE_KEY_MODE = 'order_reminder_storage_mode_v1';
 
-// Pre-configured Firebase Config for this project
+// Pre-configured Firebase Config for this project (Correct Project ID: my-order-reminder-709e9)
 const DEFAULT_FIREBASE_CONFIG = {
   apiKey: "AIzaSyAcFVWnv7JysLMgKGJhfTQES3KLC19g8gI",
-  authDomain: "my-order-reminder.firebaseapp.com",
-  projectId: "my-order-reminder",
-  storageBucket: "my-order-reminder.firebasestorage.app",
+  authDomain: "my-order-reminder-709e9.firebaseapp.com",
+  projectId: "my-order-reminder-709e9",
+  storageBucket: "my-order-reminder-709e9.firebasestorage.app",
   messagingSenderId: "450483088141",
   appId: "1:450483088141:web:f5207c0dcef8590c861e44"
 };
@@ -159,7 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Initialize Service Worker for PWA (with instant update)
 function initServiceWorker() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js?v=7.0')
+    navigator.serviceWorker.register('./sw.js?v=8.0')
       .then(reg => {
         reg.update();
         console.log('PWA ServiceWorker updated:', reg.scope);
@@ -201,9 +201,9 @@ function initStorage() {
   }
   localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(appData.orders));
 
-  // Check Firebase config if saved, or use pre-configured project config
+  // Check Firebase config: ensure correct project ID (my-order-reminder-709e9) is active
   let savedConfig = localStorage.getItem(STORAGE_KEY_CONFIG);
-  if (!savedConfig) {
+  if (!savedConfig || !savedConfig.includes('my-order-reminder-709e9')) {
     savedConfig = JSON.stringify(DEFAULT_FIREBASE_CONFIG, null, 2);
     localStorage.setItem(STORAGE_KEY_CONFIG, savedConfig);
   }
@@ -642,8 +642,14 @@ function toggleItemChecked(orderId, itemId) {
   const item = order.items.find(i => i.id === itemId);
   if (item) {
     item.checked = !item.checked;
-    saveOrdersToStorage();
+    localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(appData.orders));
     renderOrdersList();
+
+    const db = getFirestoreDb();
+    if (db) {
+      const cleanOrder = sanitizeOrderForFirestore(order);
+      db.collection('orders').doc(order.id).set(cleanOrder).catch(e => console.warn(e));
+    }
   }
 }
 
@@ -1302,6 +1308,10 @@ function handleSaveSupplier(e) {
       }
 
       saveSuppliersToStorage();
+      const db = getFirestoreDb();
+      if (db) {
+        db.collection('suppliers').doc(editId).set(appData.suppliers[idx]).catch(e => console.warn(e));
+      }
       cancelEditSupplier();
       renderSuppliersList();
       showToast(`แก้ไขข้อมูลซัพพลายเออร์ "${name}" สำเร็จ`, 'success');
@@ -1320,6 +1330,10 @@ function handleSaveSupplier(e) {
 
   appData.suppliers.push(newSupp);
   saveSuppliersToStorage();
+  const db = getFirestoreDb();
+  if (db) {
+    db.collection('suppliers').doc(newSupp.id).set(newSupp).catch(e => console.warn(e));
+  }
   document.getElementById('newSupplierForm').reset();
   renderSuppliersList();
   showToast(`เพิ่มซัพพลายเออร์ "${name}" เรียบร้อยแล้ว`, 'success');
@@ -1477,12 +1491,15 @@ function getFirestoreDb() {
     if (!firebase.apps || !firebase.apps.length) {
       let cfg = DEFAULT_FIREBASE_CONFIG;
       const savedConfig = localStorage.getItem(STORAGE_KEY_CONFIG);
-      if (savedConfig) {
+      if (savedConfig && savedConfig.includes('my-order-reminder-709e9')) {
         try {
           cfg = parseFirebaseConfigInput(savedConfig);
         } catch(e) {
           cfg = DEFAULT_FIREBASE_CONFIG;
         }
+      } else {
+        cfg = DEFAULT_FIREBASE_CONFIG;
+        localStorage.setItem(STORAGE_KEY_CONFIG, JSON.stringify(DEFAULT_FIREBASE_CONFIG, null, 2));
       }
       firebase.initializeApp(cfg);
     }
@@ -1578,14 +1595,26 @@ function listenToFirestore(db) {
       return;
     }
 
-    // Cloud has documents!
+    const cloudIds = new Set();
     const orders = [];
     snapshot.forEach(doc => {
       // Purge any lingering sample orders
       if (!doc.id.startsWith('ord-sample-')) {
+        cloudIds.add(doc.id);
         orders.push({ id: doc.id, ...doc.data() });
       }
     });
+
+    // Merge any orders created locally that aren't yet in Cloud
+    const unsyncedLocal = appData.orders.filter(o => o.id && !o.id.startsWith('ord-sample-') && !cloudIds.has(o.id));
+    if (unsyncedLocal.length > 0) {
+      console.log('Uploading unsynced local orders to Cloud:', unsyncedLocal.length);
+      unsyncedLocal.forEach(localOrd => {
+        const clean = sanitizeOrderForFirestore(localOrd);
+        db.collection('orders').doc(clean.id).set(clean).catch(e => console.warn(e));
+        orders.push(clean);
+      });
+    }
 
     appData.orders = orders;
     localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(orders));
@@ -1615,10 +1644,22 @@ function listenToSuppliersFirestore(db) {
       return;
     }
 
+    const cloudSuppIds = new Set();
     const suppliers = [];
     snapshot.forEach(doc => {
+      cloudSuppIds.add(doc.id);
       suppliers.push({ id: doc.id, ...doc.data() });
     });
+
+    // Merge any suppliers created locally that aren't yet in Cloud
+    const unsyncedSupp = appData.suppliers.filter(s => s.id && !['supp-1', 'supp-2', 'supp-3', 'supp-4'].includes(s.id) && !cloudSuppIds.has(s.id));
+    if (unsyncedSupp.length > 0) {
+      console.log('Uploading unsynced local suppliers to Cloud:', unsyncedSupp.length);
+      unsyncedSupp.forEach(s => {
+        db.collection('suppliers').doc(s.id).set(s).catch(e => console.warn(e));
+        suppliers.push(s);
+      });
+    }
 
     appData.suppliers = suppliers;
     localStorage.setItem(STORAGE_KEY_SUPPLIERS, JSON.stringify(suppliers));
@@ -1644,24 +1685,14 @@ async function syncOrdersToFirebase() {
   const db = getFirestoreDb();
   if (!db) return;
   try {
-    const snapshot = await db.collection('orders').get();
-    const currentIds = new Set(appData.orders.map(o => o.id));
     const batch = db.batch();
-
-    // 1. Delete documents in Cloud that are no longer in our local orders list
-    snapshot.forEach(doc => {
-      if (!currentIds.has(doc.id)) {
-        batch.delete(doc.ref);
+    appData.orders.forEach(order => {
+      if (order.id && !order.id.startsWith('ord-sample-')) {
+        const cleanOrder = sanitizeOrderForFirestore(order);
+        const docRef = db.collection('orders').doc(cleanOrder.id);
+        batch.set(docRef, cleanOrder);
       }
     });
-
-    // 2. Save current orders with sanitization
-    appData.orders.forEach(order => {
-      const cleanOrder = sanitizeOrderForFirestore(order);
-      const docRef = db.collection('orders').doc(cleanOrder.id);
-      batch.set(docRef, cleanOrder);
-    });
-
     await batch.commit();
     console.log('Orders synced cleanly with Cloud Firestore');
   } catch(e) {
@@ -1673,23 +1704,13 @@ async function syncSuppliersToFirebase() {
   const db = getFirestoreDb();
   if (!db) return;
   try {
-    const snapshot = await db.collection('suppliers').get();
-    const currentIds = new Set(appData.suppliers.map(s => s.id));
     const batch = db.batch();
-
-    // 1. Delete suppliers in Cloud that are no longer in local
-    snapshot.forEach(doc => {
-      if (!currentIds.has(doc.id)) {
-        batch.delete(doc.ref);
+    appData.suppliers.forEach(s => {
+      if (s.id && !['supp-1', 'supp-2', 'supp-3', 'supp-4'].includes(s.id)) {
+        const docRef = db.collection('suppliers').doc(s.id);
+        batch.set(docRef, s);
       }
     });
-
-    // 2. Save current suppliers
-    appData.suppliers.forEach(s => {
-      const docRef = db.collection('suppliers').doc(s.id);
-      batch.set(docRef, s);
-    });
-
     await batch.commit();
     console.log('Suppliers synced cleanly with Cloud Firestore');
   } catch(e) {
