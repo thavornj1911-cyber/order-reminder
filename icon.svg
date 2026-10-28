@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5" />
+      <stop offset="50%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#06b6d4" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#1e1b4b" flood-opacity="0.3" />
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="110" fill="url(#grad)" />
+  <!-- Shopping Box & Bell Icon Combined -->
+  <g filter="url(#shadow)" transform="translate(64, 64) scale(0.75)">
+    <!-- Box Body -->
+    <path d="M256 60 L440 160 L440 380 L256 480 L72 380 L72 160 Z" fill="#ffffff" fill-opacity="0.95" />
+    <!-- Box Lid Top -->
+    <path d="M256 60 L440 160 L256 260 L72 160 Z" fill="#e0e7ff" />
+    <!-- Box Center Seam -->
+    <path d="M256 260 L256 480" stroke="#cbd5e1" stroke-width="8" stroke-linecap="round" />
+    <!-- Flaps -->
+    <path d="M164 110 L348 210" stroke="#94a3b8" stroke-width="6" stroke-linecap="round" />
+    <path d="M348 110 L164 210" stroke="#94a3b8" stroke-width="6" stroke-linecap="round" />
+    
+    <!-- Notification Bell Badge -->
+    <circle cx="390" cy="110" r="75" fill="#ef4444" stroke="#ffffff" stroke-width="10" />
+    <!-- Bell Icon -->
+    <path d="M390 75 C376 75 365 86 365 100 C365 125 350 135 350 135 L430 135 C430 135 415 125 415 100 C415 86 404 75 390 75 Z" fill="#ffffff" />
+    <circle cx="390" cy="147" r="7" fill="#ffffff" />
+  </g>
+</svg>

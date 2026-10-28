@@ -1,0 +1,156 @@
+@import url('https://fonts.googleapis.com/css2?family=Prompt:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap');
+
+:root {
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --bg-main: #f8fafc;
+  --card-bg: #ffffff;
+}
+
+body {
+  font-family: 'Prompt', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--bg-main);
+  color: #1e293b;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Status Badges */
+.badge-status-1 {
+  background-color: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+.badge-status-2 {
+  background-color: #e0e7ff;
+  color: #3730a3;
+  border: 1px solid #c7d2fe;
+}
+.badge-status-3 {
+  background-color: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+  animation: pulse-soft 2s infinite;
+}
+.badge-status-4 {
+  background-color: #d1fae5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
+@keyframes pulse-soft {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.02);
+  }
+}
+
+/* Channel Badges */
+.channel-line {
+  background-color: #06c755;
+  color: white;
+}
+.channel-shopee {
+  background-color: #ee4d2d;
+  color: white;
+}
+.channel-verbal {
+  background-color: #8b5cf6;
+  color: white;
+}
+.channel-phone {
+  background-color: #0284c7;
+  color: white;
+}
+.channel-other {
+  background-color: #64748b;
+  color: white;
+}
+
+/* Smooth Accordion Toggle */
+.items-toggle-content {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease-in-out;
+  opacity: 0;
+}
+
+.items-toggle-content.expanded {
+  max-height: 1200px;
+  opacity: 1;
+}
+
+/* Rotatable Arrow Icon */
+.toggle-arrow {
+  transition: transform 0.25s ease;
+}
+.toggle-arrow.rotated {
+  transform: rotate(180deg);
+}
+
+/* Autocomplete Dropdown */
+.autocomplete-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  max-height: 220px;
+  overflow-y: auto;
+  z-index: 50;
+  margin-top: 4px;
+}
+
+.autocomplete-item {
+  padding: 0.65rem 0.85rem;
+  cursor: pointer;
+  border-bottom: 1px solid #f1f5f9;
+  transition: background 0.15s ease;
+}
+.autocomplete-item:last-child {
+  border-bottom: none;
+}
+.autocomplete-item:hover, .autocomplete-item.active {
+  background-color: #eef2ff;
+}
+
+/* Modern Card Hover */
+.order-card {
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.order-card:hover {
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+}
+
+/* Floating Action Button for Mobile */
+.fab-btn {
+  box-shadow: 0 8px 24px rgba(79, 70, 229, 0.4);
+}
+
+/* Safe Area Insets for Mobile */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 1rem);
+}

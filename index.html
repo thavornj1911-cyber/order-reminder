@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>แจ้งเตือนสั่งของ - Order Reminder</title>
+  
+  <!-- PWA Meta -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#4f46e5">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="เตือนสั่งของ">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <!-- QR Code Library for quick mobile pairing -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <!-- Firebase SDK (v10 Modular / Compat via CDN) for Cloud 24/7 sync -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+  <link rel="stylesheet" href="style.css?v=4.1">
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col pb-24 md:pb-12">
+
+  <!-- TOP HEADER -->
+  <header class="bg-indigo-600 text-white shadow-md sticky top-0 z-40">
+    <div class="max-w-5xl mx-auto px-4 py-3 sm:py-4">
+      <div class="flex items-center justify-between">
+        <!-- Brand -->
+        <div class="flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center shadow-inner">
+            <i class="fa-solid fa-boxes-packing text-2xl text-yellow-300"></i>
+          </div>
+          <div>
+            <h1 class="text-lg sm:text-xl font-bold tracking-tight flex items-center gap-2">
+              เตือนสั่งของ
+              <span id="cloudStatusBadge" class="text-xs px-2 py-0.5 rounded-full bg-indigo-800 text-indigo-200 border border-indigo-400/30 flex items-center gap-1 font-normal cursor-pointer" onclick="openCloudModal()">
+                <span class="w-2 h-2 rounded-full bg-amber-400" id="cloudStatusDot"></span>
+                <span id="cloudStatusText">ออฟไลน์</span>
+              </span>
+            </h1>
+            <p class="text-xs text-indigo-200 hidden sm:block">จัดการคำสั่งซื้อ เช็คสถานะ 4 ขั้นตอน เตือนภายใน 1-7 วัน</p>
+          </div>
+        </div>
+
+        <!-- Header Actions -->
+        <div class="flex items-center space-x-2">
+          <!-- Mobile Guide Button -->
+          <button onclick="openMobileGuideModal()" class="px-2.5 py-1.5 rounded-lg bg-indigo-500/80 hover:bg-indigo-500 text-xs font-medium flex items-center gap-1.5 transition text-white border border-indigo-400/30 shadow-sm" title="วิธีเปิดดูในมือถือตลอด 24 ชม.">
+            <i class="fa-solid fa-mobile-screen-button text-yellow-300"></i>
+            <span class="hidden sm:inline">เปิดบนมือถือ (24 ชม.)</span>
+            <span class="sm:hidden">มือถือ</span>
+          </button>
+
+          <!-- Supplier Manage Button -->
+          <button onclick="openSupplierModal()" class="px-2.5 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-800 text-xs font-medium flex items-center gap-1.5 transition text-white border border-indigo-500/40 shadow-sm" title="จัดการข้อมูลซัพพลายเออร์">
+            <i class="fa-solid fa-truck-field"></i>
+            <span class="hidden md:inline">Supplier</span>
+          </button>
+
+          <!-- Cloud Settings Button -->
+          <button onclick="openCloudModal()" class="px-2.5 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-800 text-xs font-medium flex items-center gap-1.5 transition text-white border border-indigo-500/40 shadow-sm" title="ตั้งค่าเชื่อมต่อ Cloud (Firebase)">
+            <i class="fa-solid fa-cloud"></i>
+            <span class="hidden md:inline">Cloud</span>
+          </button>
+
+          <!-- Add Order Button (Desktop) -->
+          <button onclick="openOrderModal()" class="hidden sm:flex px-3.5 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-indigo-950 text-xs font-bold items-center gap-1.5 transition shadow-md">
+            <i class="fa-solid fa-plus"></i>
+            <span>+ สั่งของใหม่</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTAINER -->
+  <main class="max-w-5xl mx-auto px-3 sm:px-4 py-4 w-full flex-grow">
+
+    <!-- AUTO-CLEANUP BANNER (Shows if items were cleaned or reminder) -->
+    <div id="cleanupNoticeBanner" class="mb-4 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs sm:text-sm px-3.5 py-2.5 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-sm">
+      <div class="flex items-center gap-2">
+        <i class="fa-solid fa-broom text-emerald-600"></i>
+        <span>หมวดมาส่งแล้ว: ลบอัตโนมัติเมื่อครบ 14 วัน หรือ<strong>กดลบออกเองได้ทันที</strong>ที่ปุ่มด้านขวานี้:</span>
+      </div>
+      <div class="flex items-center gap-2 self-end sm:self-auto shrink-0">
+        <button onclick="clearDeliveredOrders()" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-lg text-xs font-bold transition shadow-xs flex items-center gap-1.5">
+          <i class="fa-solid fa-trash-can"></i> ลบของที่ส่งแล้วทั้งหมด
+        </button>
+        <button onclick="dismissCleanupBanner()" class="text-emerald-500 hover:text-emerald-700 text-xs px-1 font-semibold">ปิด</button>
+      </div>
+    </div>
+
+    <!-- SUMMARY METRICS -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4">
+      <!-- Card 1: คิดว่าจะสั่ง -->
+      <div onclick="filterByStatus('คิดว่าจะสั่ง')" class="cursor-pointer bg-white p-3 rounded-xl border border-amber-200/80 shadow-sm hover:shadow-md transition relative overflow-hidden group">
+        <div class="absolute right-0 top-0 w-16 h-16 bg-amber-50 rounded-bl-full -mr-4 -mt-4 transition group-hover:scale-110"></div>
+        <div class="flex items-center justify-between relative">
+          <span class="text-xs font-medium text-amber-800">1. คิดว่าจะสั่ง</span>
+          <i class="fa-regular fa-lightbulb text-amber-500 text-sm"></i>
+        </div>
+        <div class="mt-1 flex items-baseline gap-2 relative">
+          <span class="text-2xl font-bold text-amber-700" id="countStatus1">0</span>
+          <span class="text-[11px] text-amber-600">รายการ</span>
+        </div>
+      </div>
+
+      <!-- Card 2: สั่งแล้ว -->
+      <div onclick="filterByStatus('สั่งแล้ว')" class="cursor-pointer bg-white p-3 rounded-xl border border-blue-200/80 shadow-sm hover:shadow-md transition relative overflow-hidden group">
+        <div class="absolute right-0 top-0 w-16 h-16 bg-blue-50 rounded-bl-full -mr-4 -mt-4 transition group-hover:scale-110"></div>
+        <div class="flex items-center justify-between relative">
+          <span class="text-xs font-medium text-blue-800">2. สั่งแล้ว</span>
+          <i class="fa-solid fa-cart-shopping text-blue-500 text-sm"></i>
+        </div>
+        <div class="mt-1 flex items-baseline gap-2 relative">
+          <span class="text-2xl font-bold text-blue-700" id="countStatus2">0</span>
+          <span class="text-[11px] text-blue-600">รายการ</span>
+        </div>
+      </div>
+
+      <!-- Card 3: เกินวันที่กำหนดแล้ว -->
+      <div onclick="filterByStatus('เกินวันที่กำหนดแล้ว')" class="cursor-pointer bg-white p-3 rounded-xl border border-rose-200/80 shadow-sm hover:shadow-md transition relative overflow-hidden group">
+        <div class="absolute right-0 top-0 w-16 h-16 bg-rose-50 rounded-bl-full -mr-4 -mt-4 transition group-hover:scale-110"></div>
+        <div class="flex items-center justify-between relative">
+          <span class="text-xs font-medium text-rose-800">3. เกินกำหนดแล้ว</span>
+          <i class="fa-solid fa-triangle-exclamation text-rose-500 text-sm animate-bounce"></i>
+        </div>
+        <div class="mt-1 flex items-baseline gap-2 relative">
+          <span class="text-2xl font-bold text-rose-700" id="countStatus3">0</span>
+          <span class="text-[11px] text-rose-600 font-semibold">ต้องเร่งด่วน!</span>
+        </div>
+      </div>
+
+      <!-- Card 4: มาส่งแล้ว -->
+      <div onclick="filterByStatus('มาส่งแล้ว')" class="cursor-pointer bg-white p-3 rounded-xl border border-emerald-200/80 shadow-sm hover:shadow-md transition relative overflow-hidden group">
+        <div class="absolute right-0 top-0 w-16 h-16 bg-emerald-50 rounded-bl-full -mr-4 -mt-4 transition group-hover:scale-110"></div>
+        <div class="flex items-center justify-between relative">
+          <span class="text-xs font-medium text-emerald-800">4. มาส่งแล้ว</span>
+          <i class="fa-solid fa-circle-check text-emerald-500 text-sm"></i>
+        </div>
+        <div class="mt-1 flex items-baseline gap-2 relative">
+          <span class="text-2xl font-bold text-emerald-700" id="countStatus4">0</span>
+          <span class="text-[11px] text-emerald-600">รายการ</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- FILTER & SEARCH BAR -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-3 mb-4">
+      <div class="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+        
+        <!-- Status Filter Tabs (Scrollable on mobile) -->
+        <div class="flex items-center space-x-1 overflow-x-auto pb-1 md:pb-0 scrollbar-none text-xs font-medium">
+          <button onclick="setActiveFilter('ทั้งหมด')" id="tabAll" class="px-3 py-1.5 rounded-lg whitespace-nowrap transition bg-indigo-600 text-white shadow-sm">
+            ทั้งหมด (<span id="countTotal">0</span>)
+          </button>
+          <button onclick="setActiveFilter('คิดว่าจะสั่ง')" id="tabStatus1" class="px-3 py-1.5 rounded-lg whitespace-nowrap transition bg-slate-100 text-slate-600 hover:bg-slate-200">
+            💭 คิดว่าจะสั่ง
+          </button>
+          <button onclick="setActiveFilter('สั่งแล้ว')" id="tabStatus2" class="px-3 py-1.5 rounded-lg whitespace-nowrap transition bg-slate-100 text-slate-600 hover:bg-slate-200">
+            🛒 สั่งแล้ว
+          </button>
+          <button onclick="setActiveFilter('เกินวันที่กำหนดแล้ว')" id="tabStatus3" class="px-3 py-1.5 rounded-lg whitespace-nowrap transition bg-slate-100 text-slate-600 hover:bg-slate-200">
+            ⚠️ เกินกำหนดแล้ว
+          </button>
+          <button onclick="setActiveFilter('มาส่งแล้ว')" id="tabStatus4" class="px-3 py-1.5 rounded-lg whitespace-nowrap transition bg-slate-100 text-slate-600 hover:bg-slate-200">
+            ✅ มาส่งแล้ว
+          </button>
+        </div>
+
+        <!-- Search Input -->
+        <div class="relative flex-grow md:max-w-xs">
+          <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+          <input type="text" id="searchInput" oninput="handleSearch(this.value)" placeholder="ค้นหาชื่อสินค้า, ซัพพลายเออร์..." 
+                 class="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition">
+        </div>
+      </div>
+
+      <!-- Secondary Filter: Reminder Range (1-7 Days) & Channels -->
+      <div class="mt-2.5 pt-2.5 border-t border-slate-100 flex flex-wrap items-center gap-2 text-xs">
+        <span class="text-slate-400 font-normal">กรองระยะเวลาเตือน:</span>
+        <button onclick="filterByReminderDays(0)" id="filterDayAll" class="px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 font-medium">ทุกวัน</button>
+        <button onclick="filterByReminderDays(1)" id="filterDay1" class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 hover:bg-slate-200">1 วัน</button>
+        <button onclick="filterByReminderDays(2)" id="filterDay2" class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 hover:bg-slate-200">2 วัน</button>
+        <button onclick="filterByReminderDays(3)" id="filterDay3" class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 hover:bg-slate-200">3 วัน</button>
+        <button onclick="filterByReminderDays(4)" id="filterDay4" class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 hover:bg-slate-200">4 วัน</button>
+        <button onclick="filterByReminderDays(5)" id="filterDay5" class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 hover:bg-slate-200">5 วัน</button>
+        <button onclick="filterByReminderDays(6)" id="filterDay6" class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 hover:bg-slate-200">6 วัน</button>
+        <button onclick="filterByReminderDays(7)" id="filterDay7" class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 hover:bg-slate-200">7 วัน</button>
+
+        <span class="text-slate-300 mx-1">|</span>
+        <span class="text-slate-400">ช่องทาง:</span>
+        <select id="channelFilterSelect" onchange="filterByChannel(this.value)" class="bg-slate-50 border border-slate-200 rounded px-2 py-0.5 text-xs focus:outline-none">
+          <option value="all">ทุกช่องทาง</option>
+          <option value="ไลน์">ไลน์ (LINE)</option>
+          <option value="ชอปปี้">ชอปปี้ (Shopee)</option>
+          <option value="ปากเปล่า">ปากเปล่า</option>
+          <option value="โทรศัพท์">โทรศัพท์</option>
+          <option value="อื่นๆ">อื่นๆ</option>
+        </select>
+
+        <button onclick="clearAllOrders()" class="ml-auto text-slate-400 hover:text-red-500 text-[11px] font-medium flex items-center gap-1 transition px-1.5 py-0.5 rounded hover:bg-red-50">
+          <i class="fa-regular fa-trash-can"></i> ล้างรายการทั้งหมด
+        </button>
+      </div>
+    </div>
+
+    <!-- ORDER CARDS LIST CONTAINER -->
+    <div id="ordersContainer" class="space-y-3">
+      <!-- Dynamic Order Cards will be injected here by app.js -->
+    </div>
+
+    <!-- EMPTY STATE (shown when no orders match) -->
+    <div id="emptyState" class="hidden text-center py-12 px-4 bg-white rounded-xl border border-dashed border-slate-300">
+      <div class="w-16 h-16 mx-auto mb-3 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-500 text-2xl">
+        <i class="fa-regular fa-clipboard"></i>
+      </div>
+      <h3 class="text-base font-bold text-slate-700">ไม่พบรายการสั่งของ</h3>
+      <p class="text-xs text-slate-400 mt-1 max-w-sm mx-auto">ยังไม่มีรายการที่ตรงกับเงื่อนไขการค้นหา คุณสามารถกดปุ่ม "+ สั่งของใหม่" เพื่อเริ่มบันทึกรายการได้เลย</p>
+      <button onclick="openOrderModal()" class="mt-4 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow transition">
+        <i class="fa-solid fa-plus mr-1"></i> เพิ่มรายการใหม่ทันที
+      </button>
+    </div>
+
+  </main>
+
+  <!-- FLOATING ACTION BUTTON (MOBILE) -->
+  <button onclick="openOrderModal()" class="sm:hidden fixed bottom-6 right-5 w-14 h-14 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-full flex items-center justify-center fab-btn z-40 transition-all">
+    <i class="fa-solid fa-plus text-xl"></i>
+  </button>
+
+  <!-- ==================== MODALS ==================== -->
+
+  <!-- 1. ADD / EDIT ORDER MODAL -->
+  <div id="orderModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-3 overflow-y-auto">
+    <div class="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden border border-slate-100 animate-fadeIn my-auto">
+      
+      <!-- Modal Header -->
+      <div class="bg-indigo-600 px-5 py-3.5 text-white flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <i class="fa-solid fa-cart-flatbed text-yellow-300"></i>
+          <h2 id="orderModalTitle" class="text-base font-bold">เพิ่มรายการสั่งของใหม่</h2>
+        </div>
+        <button onclick="closeOrderModal()" class="text-indigo-200 hover:text-white text-lg">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Modal Body -->
+      <form id="orderForm" onsubmit="handleSaveOrder(event)" class="p-5 space-y-4 max-h-[78vh] overflow-y-auto">
+        <input type="hidden" id="orderId">
+
+        <!-- SUPPLIER AUTOCOMPLETE -->
+        <div>
+          <div class="flex justify-between items-center mb-1">
+            <label class="block text-xs font-bold text-slate-700">
+              ชื่อ Supplier (ซัพพลายเออร์) <span class="text-red-500">*</span>
+            </label>
+            <button type="button" onclick="openSupplierModal()" class="text-[11px] text-indigo-600 hover:underline">
+              <i class="fa-solid fa-gear"></i> จัดการซัพพลายเออร์
+            </button>
+          </div>
+          <div class="relative">
+            <input type="text" id="orderSupplierInput" required autocomplete="off"
+                   placeholder="พิมพ์ชื่อซัพพลายเออร์..." 
+                   class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:bg-white focus:outline-none transition">
+            <div id="supplierSuggestions" class="autocomplete-suggestions hidden"></div>
+          </div>
+          <input type="hidden" id="selectedSupplierPhone">
+          <input type="hidden" id="selectedSupplierLine">
+        </div>
+
+        <!-- STATUS SELECTION (4 STATUSES) -->
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">
+            สถานะคำสั่งซื้อ <span class="text-red-500">*</span>
+          </label>
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <label class="flex items-center gap-2 p-2 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer hover:border-amber-400 has-[:checked]:bg-amber-50 has-[:checked]:border-amber-500 has-[:checked]:text-amber-900">
+              <input type="radio" name="orderStatus" value="คิดว่าจะสั่ง" checked onchange="toggleChannelFields()" class="text-indigo-600">
+              <span>1. คิดว่าจะสั่ง</span>
+            </label>
+            <label class="flex items-center gap-2 p-2 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer hover:border-blue-400 has-[:checked]:bg-blue-50 has-[:checked]:border-blue-500 has-[:checked]:text-blue-900">
+              <input type="radio" name="orderStatus" value="สั่งแล้ว" onchange="toggleChannelFields()" class="text-indigo-600">
+              <span>2. สั่งแล้ว</span>
+            </label>
+            <label class="flex items-center gap-2 p-2 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer hover:border-rose-400 has-[:checked]:bg-rose-50 has-[:checked]:border-rose-500 has-[:checked]:text-rose-900">
+              <input type="radio" name="orderStatus" value="เกินวันที่กำหนดแล้ว" onchange="toggleChannelFields()" class="text-indigo-600">
+              <span>3. เกินวันที่กำหนดแล้ว</span>
+            </label>
+            <label class="flex items-center gap-2 p-2 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer hover:border-emerald-400 has-[:checked]:bg-emerald-50 has-[:checked]:border-emerald-500 has-[:checked]:text-emerald-900">
+              <input type="radio" name="orderStatus" value="มาส่งแล้ว" onchange="toggleChannelFields()" class="text-indigo-600">
+              <span>4. มาส่งแล้ว</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- ORDER CHANNEL (VISIBLE IF 'สั่งแล้ว') -->
+        <div id="channelGroup" class="p-3 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2 hidden">
+          <label class="block text-xs font-bold text-blue-900">
+            ระบุช่องทางที่สั่ง <span class="text-red-500">*</span>
+          </label>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            <label class="flex items-center justify-center gap-1.5 p-2 rounded-lg border border-blue-200 bg-white cursor-pointer hover:border-green-500 has-[:checked]:bg-green-500 has-[:checked]:text-white font-medium">
+              <input type="radio" name="orderChannel" value="ไลน์" checked class="hidden">
+              <i class="fa-brands fa-line text-sm"></i> ไลน์
+            </label>
+            <label class="flex items-center justify-center gap-1.5 p-2 rounded-lg border border-blue-200 bg-white cursor-pointer hover:border-orange-500 has-[:checked]:bg-[#ee4d2d] has-[:checked]:text-white font-medium">
+              <input type="radio" name="orderChannel" value="ชอปปี้" class="hidden">
+              <i class="fa-solid fa-bag-shopping text-sm"></i> ชอปปี้
+            </label>
+            <label class="flex items-center justify-center gap-1.5 p-2 rounded-lg border border-blue-200 bg-white cursor-pointer hover:border-purple-500 has-[:checked]:bg-purple-600 has-[:checked]:text-white font-medium">
+              <input type="radio" name="orderChannel" value="ปากเปล่า" class="hidden">
+              <i class="fa-solid fa-comment text-sm"></i> ปากเปล่า
+            </label>
+            <label class="flex items-center justify-center gap-1.5 p-2 rounded-lg border border-blue-200 bg-white cursor-pointer hover:border-sky-500 has-[:checked]:bg-sky-600 has-[:checked]:text-white font-medium">
+              <input type="radio" name="orderChannel" value="โทรศัพท์" class="hidden">
+              <i class="fa-solid fa-phone text-sm"></i> โทรศัพท์
+            </label>
+          </div>
+        </div>
+
+        <!-- REMINDER PERIOD: 1-7 DAYS -->
+        <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+              <i class="fa-solid fa-stopwatch text-indigo-600"></i>
+              เลือกแจ้งเตือนภายใน (1 - 7 วัน):
+            </label>
+            <span id="reminderDaysDisplay" class="text-xs font-bold px-2 py-0.5 rounded bg-indigo-600 text-white">เตือนใน 3 วัน</span>
+          </div>
+
+          <!-- Quick Day Buttons (1-7) -->
+          <div class="grid grid-cols-7 gap-1 text-xs text-center font-semibold mb-2">
+            <button type="button" onclick="setReminderDays(1)" class="day-btn py-1.5 rounded border border-slate-200 bg-white hover:bg-indigo-50" data-day="1">1 วัน</button>
+            <button type="button" onclick="setReminderDays(2)" class="day-btn py-1.5 rounded border border-slate-200 bg-white hover:bg-indigo-50" data-day="2">2 วัน</button>
+            <button type="button" onclick="setReminderDays(3)" class="day-btn py-1.5 rounded border-indigo-600 bg-indigo-600 text-white shadow-sm" data-day="3">3 วัน</button>
+            <button type="button" onclick="setReminderDays(4)" class="day-btn py-1.5 rounded border border-slate-200 bg-white hover:bg-indigo-50" data-day="4">4 วัน</button>
+            <button type="button" onclick="setReminderDays(5)" class="day-btn py-1.5 rounded border border-slate-200 bg-white hover:bg-indigo-50" data-day="5">5 วัน</button>
+            <button type="button" onclick="setReminderDays(6)" class="day-btn py-1.5 rounded border border-slate-200 bg-white hover:bg-indigo-50" data-day="6">6 วัน</button>
+            <button type="button" onclick="setReminderDays(7)" class="day-btn py-1.5 rounded border border-slate-200 bg-white hover:bg-indigo-50" data-day="7">7 วัน</button>
+          </div>
+          <input type="hidden" id="orderReminderDays" value="3">
+
+          <!-- Target Date Picker -->
+          <div class="flex items-center justify-between text-xs text-slate-600 pt-2 border-t border-slate-200">
+            <span>วันที่ต้องได้รับ/ถึงกำหนด:</span>
+            <input type="date" id="orderDueDate" class="px-2 py-1 bg-white border border-slate-300 rounded text-xs focus:ring-1 focus:ring-indigo-500">
+          </div>
+        </div>
+
+        <!-- PRODUCT ITEMS LIST (MULTIPLE PRODUCTS) -->
+        <div class="border border-slate-200 rounded-xl p-3 bg-slate-50/50">
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+              <i class="fa-solid fa-list-check text-indigo-600"></i>
+              รายการสินค้าที่สั่ง <span class="text-red-500">*</span>
+            </label>
+            <button type="button" onclick="addProductItemRow()" class="px-2 py-1 text-[11px] font-semibold rounded bg-indigo-100 text-indigo-700 hover:bg-indigo-200 transition">
+              <i class="fa-solid fa-plus"></i> เพิ่มแถวสินค้า
+            </button>
+          </div>
+
+          <!-- Product Rows Container -->
+          <div id="productRowsContainer" class="space-y-2">
+            <!-- Dynamic product item rows inserted here -->
+          </div>
+        </div>
+
+        <!-- NOTES -->
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">หมายเหตุเพิ่มเติม (ถ้ามี)</label>
+          <textarea id="orderNote" rows="2" placeholder="เช่น ต้องส่งก่อนเที่ยง, ฝากไว้ที่ป้อมยาม..." 
+                    class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:bg-white focus:outline-none transition"></textarea>
+        </div>
+
+        <!-- Submit Button -->
+        <div class="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100">
+          <button type="button" onclick="closeOrderModal()" class="px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100">
+            ยกเลิก
+          </button>
+          <button type="submit" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-md transition">
+            บันทึกคำสั่งซื้อ
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 2. QUICK CHANNEL SELECTOR MODAL (When changing to 'สั่งแล้ว') -->
+  <div id="quickChannelModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-sm rounded-2xl shadow-2xl p-5 border border-slate-100 animate-fadeIn">
+      <div class="text-center mb-4">
+        <div class="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-2 text-xl">
+          <i class="fa-solid fa-cart-shopping"></i>
+        </div>
+        <h3 class="text-base font-bold text-slate-800">เปลี่ยนสถานะเป็น 'สั่งแล้ว'</h3>
+        <p class="text-xs text-slate-500">กรุณาเลือกช่องทางที่คุณได้ทำการสั่งซื้อ:</p>
+      </div>
+
+      <input type="hidden" id="quickOrderId">
+
+      <div class="grid grid-cols-2 gap-2.5 mb-4 text-xs font-semibold">
+        <button type="button" onclick="confirmQuickOrderChannel('ไลน์')" class="p-3 rounded-xl border border-green-200 bg-green-50 text-green-800 hover:bg-green-100 flex flex-col items-center gap-1.5 transition">
+          <i class="fa-brands fa-line text-2xl text-green-600"></i>
+          <span>ไลน์ (LINE)</span>
+        </button>
+        <button type="button" onclick="confirmQuickOrderChannel('ชอปปี้')" class="p-3 rounded-xl border border-orange-200 bg-orange-50 text-[#ee4d2d] hover:bg-orange-100 flex flex-col items-center gap-1.5 transition">
+          <i class="fa-solid fa-bag-shopping text-2xl text-[#ee4d2d]"></i>
+          <span>ชอปปี้ (Shopee)</span>
+        </button>
+        <button type="button" onclick="confirmQuickOrderChannel('ปากเปล่า')" class="p-3 rounded-xl border border-purple-200 bg-purple-50 text-purple-800 hover:bg-purple-100 flex flex-col items-center gap-1.5 transition">
+          <i class="fa-solid fa-comment-dots text-2xl text-purple-600"></i>
+          <span>ปากเปล่า (หน้าร้าน)</span>
+        </button>
+        <button type="button" onclick="confirmQuickOrderChannel('โทรศัพท์')" class="p-3 rounded-xl border border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100 flex flex-col items-center gap-1.5 transition">
+          <i class="fa-solid fa-phone-volume text-2xl text-sky-600"></i>
+          <span>โทรศัพท์</span>
+        </button>
+      </div>
+
+      <button type="button" onclick="closeQuickChannelModal()" class="w-full py-2 border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-50">
+        ยกเลิก
+      </button>
+    </div>
+  </div>
+
+  <!-- 3. SUPPLIER MANAGEMENT MODAL -->
+  <div id="supplierModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-3 overflow-y-auto">
+    <div class="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden border border-slate-100 animate-fadeIn my-auto">
+      <div class="bg-indigo-700 px-5 py-3.5 text-white flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <i class="fa-solid fa-truck-field text-yellow-300"></i>
+          <h2 class="text-base font-bold">จัดการรายชื่อซัพพลายเออร์ (Suppliers)</h2>
+        </div>
+        <button onclick="closeSupplierModal()" class="text-indigo-200 hover:text-white text-lg">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+        <!-- Add New Supplier Form -->
+        <form id="newSupplierForm" onsubmit="handleSaveSupplier(event)" class="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+          <h3 class="text-xs font-bold text-slate-700 flex items-center gap-1">
+            <i class="fa-solid fa-user-plus text-indigo-600"></i> เพิ่มซัพพลายเออร์ใหม่
+          </h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+            <div>
+              <label class="block text-[11px] font-medium text-slate-600 mb-0.5">ชื่อร้าน / ซัพพลายเออร์ *</label>
+              <input type="text" id="suppName" required placeholder="เช่น ร้านบรรจุภัณฑ์ A" class="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-xs focus:ring-1 focus:ring-indigo-500">
+            </div>
+            <div>
+              <label class="block text-[11px] font-medium text-slate-600 mb-0.5">เบอร์โทรศัพท์</label>
+              <input type="text" id="suppPhone" placeholder="08x-xxx-xxxx" class="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-xs focus:ring-1 focus:ring-indigo-500">
+            </div>
+            <div>
+              <label class="block text-[11px] font-medium text-slate-600 mb-0.5">LINE ID / ช่องทางติดต่อ</label>
+              <input type="text" id="suppLine" placeholder="@lineid หรือ ลิงก์" class="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-xs focus:ring-1 focus:ring-indigo-500">
+            </div>
+            <div>
+              <label class="block text-[11px] font-medium text-slate-600 mb-0.5">หมายเหตุ / สินค้าหลัก</label>
+              <input type="text" id="suppNote" placeholder="เช่น สั่งกล่องพัสดุ เบอร์ 0" class="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-xs focus:ring-1 focus:ring-indigo-500">
+            </div>
+          </div>
+          <button type="submit" class="w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg shadow-sm transition">
+            + บันทึกซัพพลายเออร์
+          </button>
+        </form>
+
+        <!-- Existing Suppliers List -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <h4 class="text-xs font-bold text-slate-700">รายชื่อซัพพลายเออร์ที่มีอยู่ (<span id="suppCount">0</span>)</h4>
+            <span class="text-[11px] text-slate-400">พิมพ์หาในฟอร์มสั่งของจะขึ้นมาให้เลือกทันที</span>
+          </div>
+          <div id="suppliersListContainer" class="space-y-2">
+            <!-- Suppliers list injected by app.js -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. CLOUD SETTINGS MODAL (FIREBASE CONFIG FOR 24/7 ONLINE ACCESS) -->
+  <div id="cloudModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-3 overflow-y-auto">
+    <div class="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden border border-slate-100 animate-fadeIn my-auto">
+      <div class="bg-indigo-600 px-5 py-3.5 text-white flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <i class="fa-solid fa-cloud text-yellow-300"></i>
+          <h2 class="text-base font-bold">ตั้งค่า Cloud Sync (ออนไลน์ 24 ชม.)</h2>
+        </div>
+        <button onclick="closeCloudModal()" class="text-indigo-200 hover:text-white text-lg">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-4 max-h-[78vh] overflow-y-auto text-xs">
+        <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-3.5 text-indigo-900 space-y-1">
+          <p class="font-bold flex items-center gap-1.5 text-sm">
+            <i class="fa-solid fa-circle-check text-green-600"></i> ทำไมต้องใช้ Firebase Cloud?
+          </p>
+          <p class="text-indigo-700 leading-relaxed">
+            เมื่อคุณปิดคอมพิวเตอร์ โทรศัพท์จะไม่สามารถเข้า <code>localhost</code> ได้ แต่ด้วย <strong>Firebase Firestore (ใช้งานฟรี 100%)</strong> ข้อมูลจะถูกเก็บไว้บน Cloud ของ Google ทำให้เปิดเช็คหรือสั่งของผ่านมือถือได้ 24 ชั่วโมงแม้ปิดคอมพิวเตอร์ไปแล้ว!
+          </p>
+        </div>
+
+        <!-- Mode selector: LocalStorage vs Firebase -->
+        <div>
+          <label class="block font-bold text-slate-700 mb-1.5">โหมดการบันทึกข้อมูล:</label>
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" onclick="switchStorageMode('local')" id="btnModeLocal" class="p-2.5 rounded-xl border text-center font-semibold transition">
+              <i class="fa-solid fa-laptop block text-base mb-1"></i>
+              ในเครื่องนี้ (Local)
+            </button>
+            <button type="button" onclick="switchStorageMode('firebase')" id="btnModeFirebase" class="p-2.5 rounded-xl border text-center font-semibold transition">
+              <i class="fa-solid fa-cloud-arrow-up block text-base mb-1"></i>
+              Cloud Firebase (ออนไลน์)
+            </button>
+          </div>
+        </div>
+
+        <!-- Firebase Config Inputs -->
+        <div id="firebaseConfigSection" class="space-y-3 pt-2 border-t border-slate-200">
+          <div class="flex items-center justify-between">
+            <label class="font-bold text-slate-700">Firebase Config (JSON หรือวางค่า):</label>
+            <a href="https://console.firebase.google.com" target="_blank" class="text-indigo-600 hover:underline text-[11px] flex items-center gap-1">
+              เปิด Firebase Console <i class="fa-solid fa-arrow-up-right-from-square"></i>
+            </a>
+          </div>
+
+          <textarea id="firebaseConfigInput" rows="5" placeholder='วาง Firebase Config ตรงนี้ เช่น:
+{
+  "apiKey": "AIzaSy...",
+  "authDomain": "myproject.firebaseapp.com",
+  "projectId": "myproject",
+  "storageBucket": "myproject.appspot.com",
+  "messagingSenderId": "12345...",
+  "appId": "1:12345:web:abcde"
+}' class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono text-[11px] focus:ring-1 focus:ring-indigo-500 focus:bg-white"></textarea>
+
+          <div class="flex items-center justify-between gap-2">
+            <button type="button" onclick="saveAndConnectFirebase()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow-sm transition">
+              <i class="fa-solid fa-plug mr-1"></i> บันทึก & เชื่อมต่อ
+            </button>
+            <button type="button" onclick="loadDemoFirebaseConfig()" class="text-slate-500 hover:text-slate-800 text-[11px]">
+              ใช้ตัวอย่าง / รีเซ็ต
+            </button>
+          </div>
+
+          <div id="firebaseTestResult" class="hidden p-2.5 rounded-lg text-xs"></div>
+
+          <!-- Cloud Sync Tools -->
+          <div class="pt-2 border-t border-slate-100 flex flex-wrap gap-2">
+            <button type="button" onclick="forcePushLocalToCloud()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] shadow-xs transition flex items-center gap-1">
+              <i class="fa-solid fa-cloud-arrow-up"></i> ซิงค์รายการปัจจุบันขึ้น Cloud (แทนที่ข้อมูลเก่า)
+            </button>
+            <button type="button" onclick="clearCloudOrders()" class="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg font-semibold text-[11px] transition flex items-center gap-1">
+              <i class="fa-solid fa-trash-can"></i> ล้างคำสั่งซื้อทั้งหมด
+            </button>
+          </div>
+        </div>
+
+        <!-- Backup & Restore -->
+        <div class="pt-3 border-t border-slate-200 flex items-center justify-between">
+          <div>
+            <span class="font-bold text-slate-700 block">สำรองข้อมูล (JSON Backup)</span>
+            <span class="text-[11px] text-slate-400">ดาวน์โหลดข้อมูลเก็บไว้ หรือนำไปเปิดเครื่องอื่น</span>
+          </div>
+          <div class="flex space-x-1.5">
+            <button onclick="exportDataJSON()" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">
+              <i class="fa-solid fa-download"></i> สำรอง
+            </button>
+            <button onclick="document.getElementById('importFile').click()" class="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold">
+              <i class="fa-solid fa-upload"></i> กู้คืน
+            </button>
+            <input type="file" id="importFile" onchange="importDataJSON(event)" class="hidden" accept=".json">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. MOBILE ACCESS GUIDE MODAL ("วิธีเปิดในมือถือเมื่อปิดคอม 24 ชม.") -->
+  <div id="mobileGuideModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-3 overflow-y-auto">
+    <div class="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden border border-slate-100 animate-fadeIn my-auto">
+      <div class="bg-gradient-to-r from-indigo-600 to-purple-600 px-5 py-4 text-white flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <i class="fa-solid fa-mobile-screen-button text-yellow-300 text-xl"></i>
+          <div>
+            <h2 class="text-base font-bold">วิธีเปิดดูในมือถือเมื่อปิดคอมพิวเตอร์</h2>
+            <p class="text-[11px] text-indigo-100">ดูได้ 24 ชั่วโมงจากทุกที่ ฟรี 100%</p>
+          </div>
+        </div>
+        <button onclick="closeMobileGuideModal()" class="text-indigo-200 hover:text-white text-lg">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-4 max-h-[75vh] overflow-y-auto text-xs">
+        <div class="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900">
+          <p class="font-bold flex items-center gap-1.5 mb-1">
+            <i class="fa-solid fa-triangle-exclamation text-amber-600"></i> ทำไมเปิดผ่าน Localhost ไม่ได้เมื่อปิดคอม?
+          </p>
+          <p class="text-slate-700 leading-relaxed text-[11px]">
+            เมื่อปิดคอม เซิร์ฟเวอร์ในคอมจะหยุดทำงาน ดังนั้นหากต้องการเปิดดูผ่านโทรศัพท์ตลอดเวลา 24 ชม. สามารถนำโฟลเดอร์นี้ไปอัปโหลดขึ้นเว็บฟรีได้ภายใน 2 นาทีตามขั้นตอนด้านล่างนี้ครับ:
+          </p>
+        </div>
+
+        <!-- 3 Free Hosting Steps -->
+        <div class="space-y-3">
+          <div class="p-3.5 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                <span class="w-5 h-5 rounded-full bg-indigo-600 text-white text-[11px] flex items-center justify-center font-bold">1</span>
+                วิธีที่ง่ายที่สุด: ลากใส่ Netlify Drop (เสร็จใน 30 วินาที)
+              </span>
+              <span class="px-2 py-0.5 rounded bg-green-100 text-green-700 font-bold text-[10px]">แนะนำ</span>
+            </div>
+            <ol class="list-decimal list-inside space-y-1 text-slate-600 text-[11px] pl-2">
+              <li>เปิดเว็บ <a href="https://app.netlify.com/drop" target="_blank" class="text-indigo-600 font-bold underline">app.netlify.com/drop</a></li>
+              <li>ลากโฟลเดอร์โปรเจกต์ <code>แอปแจ้งเตือนสั่งของ</code> ทั้งโฟลเดอร์ไปวาง</li>
+              <li>จะได้ลิงก์เว็บ URL ทันที (เช่น <code>https://my-order-reminder.netlify.app</code>)</li>
+              <li>ส่งลิงก์เข้าไลน์เปิดในมือถือได้เลย ใช้งานได้ตลอด 24 ชม. แม้ปิดคอม!</li>
+            </ol>
+          </div>
+
+          <div class="p-3.5 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                <span class="w-5 h-5 rounded-full bg-slate-700 text-white text-[11px] flex items-center justify-center font-bold">2</span>
+                หรือผ่าน Vercel / GitHub Pages
+              </span>
+            </div>
+            <p class="text-slate-600 text-[11px] pl-2">
+              สามารถสร้าง GitHub repository แล้วเปิด GitHub Pages (ฟรีตลอดชีพ) หรือ Deploy บน Vercel เพียงคลิกเดียว
+            </p>
+          </div>
+
+          <!-- Add to Home Screen Tips -->
+          <div class="p-3.5 rounded-xl border border-indigo-100 bg-indigo-50/50 space-y-2">
+            <h4 class="font-bold text-indigo-950 flex items-center gap-1.5">
+              <i class="fa-solid fa-arrow-down-to-bracket text-indigo-600"></i> ทำเป็นแอปบนหน้าจอมือถือ (Add to Home Screen)
+            </h4>
+            <div class="grid grid-cols-2 gap-2 text-[11px] text-slate-600">
+              <div class="p-2 bg-white rounded-lg border border-indigo-100">
+                <strong class="text-indigo-700 block mb-0.5">📱 บน iPhone (Safari):</strong>
+                กดปุ่มแชร์ (สี่เหลี่ยมลูกศรขึ้น) &gt; เลือก <strong>"เพิ่มไปยังหน้าจอโฮม"</strong>
+              </div>
+              <div class="p-2 bg-white rounded-lg border border-indigo-100">
+                <strong class="text-indigo-700 block mb-0.5">🤖 บน Android (Chrome):</strong>
+                กดจุด 3 จุดมุมขวาบน &gt; เลือก <strong>"ติดตั้งแอป"</strong> หรือ "เพิ่มลงในหน้าจอหลัก"
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- QR Code for Local Testing (when on same WiFi) -->
+        <div class="p-3 bg-slate-100 rounded-xl text-center space-y-2">
+          <span class="font-bold text-slate-700 block">เปิดทดสอบในมือถือตอนนี้ (เมื่อเปิดคอมและต่อ WiFi เดียวกัน)</span>
+          <div id="localQrContainer" class="flex justify-center p-2 bg-white rounded-lg w-32 h-32 mx-auto shadow-sm"></div>
+          <p id="localIpUrl" class="text-[11px] font-mono text-indigo-600 font-semibold"></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION CONTAINER -->
+  <div id="toastContainer" class="fixed top-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none"></div>
+
+  <!-- JAVASCRIPT LOGIC -->
+  <script src="app.js?v=4.1"></script>
+</body>
+</html>
