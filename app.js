@@ -159,7 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Initialize Service Worker for PWA (with instant update)
 function initServiceWorker() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js?v=8.0')
+    navigator.serviceWorker.register('./sw.js?v=9.0')
       .then(reg => {
         reg.update();
         console.log('PWA ServiceWorker updated:', reg.scope);
@@ -170,15 +170,20 @@ function initServiceWorker() {
 
 // Initialize Storage (LocalStorage or Firebase)
 function initStorage() {
-  const savedMode = localStorage.getItem(STORAGE_KEY_MODE) || 'firebase';
-  appData.storageMode = savedMode;
+  // Always enforce Cloud Sync mode so devices never get stuck offline
+  let savedMode = localStorage.getItem(STORAGE_KEY_MODE);
+  if (savedMode !== 'firebase') {
+    savedMode = 'firebase';
+    localStorage.setItem(STORAGE_KEY_MODE, 'firebase');
+  }
+  appData.storageMode = 'firebase';
 
-  // Load suppliers (purge any dummy demo suppliers like supp-1..supp-4)
+  // Load suppliers (purge any dummy demo or test suppliers)
   const savedSuppliers = localStorage.getItem(STORAGE_KEY_SUPPLIERS);
   if (savedSuppliers) {
     try {
       const parsedSupp = JSON.parse(savedSuppliers);
-      appData.suppliers = parsedSupp.filter(s => s.id && !['supp-1', 'supp-2', 'supp-3', 'supp-4'].includes(s.id));
+      appData.suppliers = parsedSupp.filter(s => s.id && !['supp-1', 'supp-2', 'supp-3', 'supp-4', 'supp-test-1'].includes(s.id) && s.name !== 'ร้านทดสอบระบบ คลาวด์ซิงค์');
     } catch(e) {
       appData.suppliers = [];
     }
@@ -187,12 +192,12 @@ function initStorage() {
   }
   localStorage.setItem(STORAGE_KEY_SUPPLIERS, JSON.stringify(appData.suppliers));
 
-  // Load orders (purge any dummy demo sample orders like ord-sample-*)
+  // Load orders (purge any dummy demo or test orders)
   const savedOrders = localStorage.getItem(STORAGE_KEY_ORDERS);
   if (savedOrders !== null) {
     try {
       const parsed = JSON.parse(savedOrders);
-      appData.orders = parsed.filter(o => o.id && !o.id.startsWith('ord-sample-'));
+      appData.orders = parsed.filter(o => o.id && !o.id.startsWith('ord-sample-') && o.id !== 'ord-test-live-1' && o.supplierName !== 'ร้านทดสอบระบบ คลาวด์ซิงค์');
     } catch(e) {
       appData.orders = [];
     }
@@ -1595,26 +1600,16 @@ function listenToFirestore(db) {
       return;
     }
 
-    const cloudIds = new Set();
     const orders = [];
     snapshot.forEach(doc => {
-      // Purge any lingering sample orders
-      if (!doc.id.startsWith('ord-sample-')) {
-        cloudIds.add(doc.id);
-        orders.push({ id: doc.id, ...doc.data() });
+      // Purge any lingering sample or test orders
+      if (!doc.id.startsWith('ord-sample-') && doc.id !== 'ord-test-live-1') {
+        const data = doc.data();
+        if (data.supplierName !== 'ร้านทดสอบระบบ คลาวด์ซิงค์') {
+          orders.push({ id: doc.id, ...data });
+        }
       }
     });
-
-    // Merge any orders created locally that aren't yet in Cloud
-    const unsyncedLocal = appData.orders.filter(o => o.id && !o.id.startsWith('ord-sample-') && !cloudIds.has(o.id));
-    if (unsyncedLocal.length > 0) {
-      console.log('Uploading unsynced local orders to Cloud:', unsyncedLocal.length);
-      unsyncedLocal.forEach(localOrd => {
-        const clean = sanitizeOrderForFirestore(localOrd);
-        db.collection('orders').doc(clean.id).set(clean).catch(e => console.warn(e));
-        orders.push(clean);
-      });
-    }
 
     appData.orders = orders;
     localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(orders));
@@ -1644,22 +1639,15 @@ function listenToSuppliersFirestore(db) {
       return;
     }
 
-    const cloudSuppIds = new Set();
     const suppliers = [];
     snapshot.forEach(doc => {
-      cloudSuppIds.add(doc.id);
-      suppliers.push({ id: doc.id, ...doc.data() });
+      if (!['supp-1', 'supp-2', 'supp-3', 'supp-4', 'supp-test-1'].includes(doc.id)) {
+        const data = doc.data();
+        if (data.name !== 'ร้านทดสอบระบบ คลาวด์ซิงค์') {
+          suppliers.push({ id: doc.id, ...data });
+        }
+      }
     });
-
-    // Merge any suppliers created locally that aren't yet in Cloud
-    const unsyncedSupp = appData.suppliers.filter(s => s.id && !['supp-1', 'supp-2', 'supp-3', 'supp-4'].includes(s.id) && !cloudSuppIds.has(s.id));
-    if (unsyncedSupp.length > 0) {
-      console.log('Uploading unsynced local suppliers to Cloud:', unsyncedSupp.length);
-      unsyncedSupp.forEach(s => {
-        db.collection('suppliers').doc(s.id).set(s).catch(e => console.warn(e));
-        suppliers.push(s);
-      });
-    }
 
     appData.suppliers = suppliers;
     localStorage.setItem(STORAGE_KEY_SUPPLIERS, JSON.stringify(suppliers));
